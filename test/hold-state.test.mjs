@@ -20,6 +20,7 @@ import {
   HOLD_PROJECTION_KEY,
   HOLD_STATE_VERSION,
   applyHoldEvent,
+  composeLiveState,
   holdProjectionDefinition,
   holdStateDiffers,
   holdStateFor,
@@ -240,6 +241,123 @@ test('an unknown phase or reason is not publishable', () => {
   assert.equal(publishHoldState(session, { ...HOLD, lastReleaseReason: 'guesswork' }, undefined).written, false);
   assert.equal(written.length, 0);
 });
+
+process.stdout.write('\nthe state handed to a client right now\n');
+
+test('a session that has never published still gets a complete state', () => {
+  // The reported bug: the status panel is drawn from this state, and it was composed from
+  // the published record alone — which is empty until the brake has actually announced
+  // something, i.e. until a message has been held. So the panel came up blank for an
+  // ordinary off-peak session, which looks exactly like a broken button.
+  const live = composeLiveState(undefined, {
+    hold: false,
+    reason: 'open',
+    phase: 'open',
+    releaseAtMs: null,
+    heldCount: 0,
+    override: undefined,
+    nextTransitionMs: 1_700_000_000_000,
+    nextTransitionEdge: 'arm',
+    nowMs: 1_699_000_000_000,
+  });
+  assert.equal(live.engaged, false);
+  assert.equal(live.phase, 'open');
+  assert.equal(live.nextTransitionEdge, 'arm', 'the schedule is answerable without a single publish');
+  const decoded = holdStateSchemaShape(live);
+  assert.deepEqual(decoded, [], 'and every field must satisfy the schema a client decodes against');
+});
+
+test('the held facts come from the live verdict, not from the last announcement', () => {
+  const stale = holdStateFor({ phase: 'open', heldCount: 0, reason: 'peak', releaseAtMs: null, nowMs: 1 });
+  const live = composeLiveState(stale, {
+    hold: true,
+    reason: 'peak',
+    phase: 'peak',
+    releaseAtMs: 1_700_000_000_000,
+    heldCount: 3,
+    override: undefined,
+    nextTransitionMs: null,
+    nextTransitionEdge: null,
+    nowMs: 1_699_000_000_000,
+  });
+  assert.equal(live.engaged, true);
+  assert.equal(live.phase, 'peak');
+  assert.equal(live.reason, 'peak');
+  assert.equal(live.heldCount, 3);
+  assert.equal(live.releaseAtMs, 1_700_000_000_000);
+});
+
+test('an open gate clears everything that only means something while held', () => {
+  // Otherwise a stale count or release instant would linger in the panel after a release,
+  // saying work is still withheld when it is not.
+  const held = holdStateFor({ phase: 'peak', heldCount: 4, reason: 'peak', releaseAtMs: 1_700_000_000_000, nowMs: 1 });
+  const live = composeLiveState(held, {
+    hold: false,
+    reason: 'open',
+    phase: 'open',
+    releaseAtMs: 1_700_000_000_000,
+    heldCount: 4,
+    override: undefined,
+    nextTransitionMs: null,
+    nextTransitionEdge: null,
+    nowMs: 2,
+  });
+  assert.equal(live.engaged, false);
+  assert.equal(live.heldCount, 0);
+  assert.equal(live.reason, null);
+  assert.equal(live.releaseAtMs, null);
+});
+
+test('the historical fields survive the overlay', () => {
+  // When the last release happened and why are the only facts the published record owns;
+  // the live overlay must not wipe them, or the delivered pose never shows.
+  const released = releaseStateFor({ phase: 'open', releaseReason: 'schedule', nowMs: 500 });
+  const live = composeLiveState(released, {
+    hold: false,
+    reason: 'open',
+    phase: 'open',
+    releaseAtMs: null,
+    heldCount: 0,
+    override: undefined,
+    nextTransitionMs: null,
+    nextTransitionEdge: null,
+    nowMs: 900,
+  });
+  assert.equal(live.lastReleaseReason, 'schedule');
+  assert.equal(live.lastReleaseAtMs, 500);
+  assert.equal(live.updatedAtMs, 900, 'and the clock moves');
+});
+
+test('a live override is reflected even when nothing is held', () => {
+  const live = composeLiveState(undefined, {
+    hold: false,
+    reason: 'manual-override',
+    phase: 'peak',
+    releaseAtMs: null,
+    heldCount: 0,
+    override: { kind: 'window', untilMs: 1_700_000_000_000 },
+    nextTransitionMs: null,
+    nextTransitionEdge: null,
+    nowMs: 1_699_000_000_000,
+  });
+  assert.equal(live.overrideActive, true);
+  assert.equal(live.overrideUntilMs, 1_700_000_000_000);
+  assert.equal(live.phase, 'peak', 'the tariff is still peak; only the dispatch is overridden');
+});
+
+/**
+ * Decode the composed state through the real schema.
+ *
+ * A shape check rather than a field check: the client decodes this, and a field the
+ * schema rejects would leave the panel showing the previous state forever.
+ *
+ * @param {object} state - the composed state.
+ * @returns {string[]} the schema issues, empty when it decodes.
+ */
+function holdStateSchemaShape(state) {
+  const decoded = holdProjectionDefinition.stateSchema.safeParse(state);
+  return decoded.success ? [] : decoded.error.issues.map((issue) => issue.path.join('.'));
+}
 
 process.stdout.write(`\n${results.passed} passed, ${results.failed} failed\n`);
 if (results.failed > 0) process.exitCode = 1;

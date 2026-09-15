@@ -445,6 +445,67 @@ await test('the receipt names the release instant it is waiting for', async () =
   }
 });
 
+process.stdout.write('\nthe state a client is handed\n');
+
+await test('a session that has never been held still describes itself', async () => {
+  // The reported bug. The status panel draws from this state, and it used to be read from
+  // the published record alone — which is empty until the brake has announced something,
+  // so an ordinary off-peak session answered with nothing and the panel came up blank.
+  const restore = freezeClock('2026-09-15T05:00:00Z');
+  try {
+    const ctx = createContext();
+    const control = apply(ctx, { home, locale: 'en' });
+    const agent = createAgent('session-live');
+    await ctx.emit('agent/created', { agent });
+
+    assert.equal(control.publishedState('session-live'), undefined, 'nothing has been announced yet');
+    const live = control.liveState('session-live');
+    assert.equal(live.engaged, false);
+    assert.equal(live.phase, 'open', 'the schedule is a function of the clock, so it is always answerable');
+    assert.equal(typeof live.nextTransitionMs, 'number', 'including when it next changes');
+    assert.equal(live.heldCount, 0);
+  } finally {
+    restore();
+  }
+});
+
+await test('a held session is described from the live verdict, not the last announcement', async () => {
+  const restore = freezeClock('2026-09-15T02:00:00Z'); // peak
+  try {
+    const ctx = createContext();
+    const control = apply(ctx, { home, locale: 'en' });
+    const agent = createAgent('session-live-held');
+    await ctx.emit('agent/created', { agent });
+    agent.inbox.append('next-turn', userMessage('m1', 'work'));
+    assert.equal((await agent.proposeStep()).kind, 'reject');
+
+    const live = control.liveState('session-live-held');
+    assert.equal(live.engaged, true);
+    assert.equal(live.phase, 'peak');
+    assert.equal(live.reason, 'peak');
+    assert.equal(live.heldCount, 1, 'the panel says how much is being withheld');
+    assert.equal(typeof live.releaseAtMs, 'number');
+  } finally {
+    restore();
+  }
+});
+
+await test('an unknown session is still described rather than refused', async () => {
+  // A stale badge in a closed tab asks about a session this process never saw. The panel
+  // would rather show the schedule than an error, and the schedule has no session in it.
+  const restore = freezeClock('2026-09-15T05:00:00Z');
+  try {
+    const ctx = createContext();
+    const control = apply(ctx, { home, locale: 'en' });
+    const live = control.liveState('session-that-never-existed');
+    assert.equal(live.engaged, false);
+    assert.equal(live.phase, 'open');
+    assert.equal(live.heldCount, 0);
+  } finally {
+    restore();
+  }
+});
+
 process.stdout.write('\nrelease and re-delivery\n');
 
 await test('a release re-delivers the withheld prompt in its original order', async () => {

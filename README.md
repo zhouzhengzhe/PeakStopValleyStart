@@ -264,7 +264,9 @@ A live override is shown even when nothing is held. It is the one state that spe
 
 The character breathes and casts a ground shadow, and carries a glass bead — a halo, a translucent shell, a bright core and a pinprick of glare — whose **halo radius is the state's intensity**. Quiet states cost no attention, and the one state that actually spends money is the only one that shouts. The bead's colours are system status colours rather than theme tokens, deliberately: a status colour that shifted with the theme would stop being a signal. Everything else takes its surface from the theme.
 
-The panel above the character is a small dashboard rather than a sentence: a titled header with a LIVE pill, a hairline, then six rows — the tariff, the dispatch decision, the next schedule change, the release instant, how much is held, and whether an override is live. Each is answered from the published state, which is why the host publishes the next transition at all: the browser has no window table and no clock the host would agree with.
+The panel above the character is a small dashboard rather than a sentence: a titled header with a LIVE pill, a hairline, then six rows — the tariff, the dispatch decision, the next schedule change, the release instant, how much is held, and whether an override is live. Each is answered from the live state, which the host composes on demand rather than reading back from what it has announced: `publishedStates` only holds what the brake has already said, and it says nothing until a message has actually been held, so a reader that trusted it answered an ordinary off-peak session with nothing at all and the panel came up blank.
+
+The next change is published because only the host can answer it — the browser has no window table and no clock the host would agree with. It is read from `boundariesAround`, whose field is `instantMs`; this plugin's first version read a `transitionMs` that exists only in a stale doc comment, so that row silently showed nothing.
 
 **The bead and the panel's mark answer different questions, and the design draws both.** The bead says what the *badge* is doing — grey when that is nothing, blue while it holds, red only when an override is spending money on purpose — with its halo radius carrying the intensity. The panel's tariff mark says what the *tariff* is, where off-peak is green because cheap is the good state. One shared colour would have made "cheap" and "nothing happening" look identical.
 
@@ -363,7 +365,7 @@ node test/manifest.test.mjs         # assembly: manifest ↔ patch ↔ module ag
 node test/readme.test.mjs           # README.md and README.zh.md stay structurally in step
 ```
 
-368 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
+376 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
 
 They also need no harness running, so they sidestep the one-harness-per-`$DSH_HOME` constraint entirely — `npm test` is the fast way to check the plugin without touching a live profile.
 

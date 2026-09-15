@@ -212,9 +212,19 @@ test('a missing instant degrades to words rather than to a broken date', () => {
 });
 
 test('the next switch names the edge it is heading for', () => {
-  const panel = panelFor(state({ nextTransitionMs: NOW, nextTransitionEdge: 'arm' }), NOW);
-  assert.match(panel.rows[2].value, /峰前/u);
-  assert.match(panel.rows[2].value, /\d{4}-\d{2}-\d{2} \d{2}:\d{2}/u, 'a stamp an operator can compare against a clock');
+  // The four edges the schedule table actually emits, and no English leaking through: an
+  // earlier version of the map guessed `peak`, so `peak-start` and `peak-end` rendered raw
+  // — including "the peak is starting", which is the one that matters most.
+  for (const [edge, expected] of [['arm', /峰前/u], ['peak-start', /峰时/u], ['peak-end', /峰后/u], ['release', /谷时/u]]) {
+    const panel = panelFor(state({ nextTransitionMs: NOW, nextTransitionEdge: edge }), NOW);
+    assert.match(panel.rows[2].value, expected, `${edge} must be named in Chinese`);
+    assert.ok(!panel.rows[2].value.includes(edge), `${edge} must not leak through untranslated`);
+  }
+  assert.match(
+    panelFor(state({ nextTransitionMs: NOW, nextTransitionEdge: 'arm' }), NOW).rows[2].value,
+    /\d{4}-\d{2}-\d{2} \d{2}:\d{2}/u,
+    'and it carries a stamp an operator can compare against a clock',
+  );
 });
 
 test('an ordinary idle state still produces a panel', () => {
