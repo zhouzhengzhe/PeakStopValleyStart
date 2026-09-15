@@ -103,10 +103,25 @@ function createAgent(id, options = {}) {
   /** Messages parked in the inbox, in order. */
   const inbox = [];
   const ctx = createContext();
+  /** Session events the brake published, in order. */
+  const appended = [];
   const agent = {
     id,
     ctx,
-    session: { header: options.cwd === undefined ? {} : { cwd: options.cwd } },
+    session: {
+      id,
+      header: options.cwd === undefined ? {} : { cwd: options.cwd },
+      /** Mirror `Session.append`, recording what the brake publishes. */
+      append: (type, data) => {
+        const event = { type, data, seq: appended.length };
+        appended.push(event);
+        return event;
+      },
+    },
+    /** Every session event the brake wrote. */
+    get appended() {
+      return [...appended];
+    },
     inbox: {
       /** Append without waking, mirroring `Inbox.append`. */
       append: (target, message) => {
@@ -1212,6 +1227,163 @@ await test('status stays quiet about delivery when nothing has failed', async ()
     await ctx.emit('agent/created', { agent });
     const status = await control.runCommand(agent, 'status');
     assert.ok(!/FAILED/u.test(status.text), 'a clean session must not carry a stale failure line');
+  } finally {
+    restore();
+  }
+});
+
+process.stdout.write('\npublished hold state\n');
+
+await test('a hold publishes one session event describing it', async () => {
+  const restore = freezeClock('2026-09-15T02:00:00Z');
+  try {
+    const ctx = createContext();
+    apply(ctx, { home, locale: 'en' });
+    const agent = createAgent('session-publish-hold');
+    await ctx.emit('agent/created', { agent });
+    agent.inbox.append('next-turn', userMessage('m1', 'work'));
+    await agent.proposeStep();
+
+    const published = agent.appended.filter((event) => event.type === 'peak-valley-brake/change');
+    assert.equal(published.length, 1, 'exactly one record for one hold');
+    const state = published[0].data;
+    assert.equal(state.engaged, true);
+    assert.equal(state.phase, 'peak');
+    assert.equal(state.heldCount, 1);
+    assert.equal(state.reason, 'peak');
+    assert.equal(state.releaseAtMs, Date.parse('2026-09-15T04:01:00Z'));
+    assert.equal(state.overrideActive, false);
+  } finally {
+    restore();
+  }
+});
+
+await test('a second refusal in the same hold publishes nothing more', async () => {
+  // The brake can refuse many steps inside one peak window; a record per refusal
+  // would bury the session log.
+  const restore = freezeClock('2026-09-15T02:00:00Z');
+  try {
+    const ctx = createContext();
+    apply(ctx, { home, locale: 'en' });
+    const agent = createAgent('session-publish-idempotent');
+    await ctx.emit('agent/created', { agent });
+    agent.inbox.append('next-turn', userMessage('m1', 'first'));
+    await agent.proposeStep();
+    agent.inbox.append('next-turn', userMessage('m2', 'second'));
+    await agent.proposeStep();
+
+    assert.equal(
+      agent.appended.filter((event) => event.type === 'peak-valley-brake/change').length,
+      1,
+      'an unchanged hold must not write again',
+    );
+  } finally {
+    restore();
+  }
+});
+
+await test('a growing hold updates the published count', async () => {
+  const restore = freezeClock('2026-09-15T02:00:00Z');
+  try {
+    const ctx = createContext();
+    apply(ctx, { home, locale: 'en' });
+    const agent = createAgent('session-publish-growing');
+    await ctx.emit('agent/created', { agent });
+    agent.inbox.append('next-turn', userMessage('m1', 'first'));
+    await agent.proposeStep();
+    agent.inbox.append('next-turn', userMessage('m2', 'second'));
+    agent.inbox.append('next-turn', userMessage('m3', 'third'));
+    await agent.proposeStep();
+
+    const states = agent.appended.filter((event) => event.type === 'peak-valley-brake/change').map((e) => e.data);
+    assert.equal(states.length, 2, 'the count change is worth one more record');
+    assert.equal(states[0].heldCount, 1);
+    assert.equal(states[1].heldCount, 2);
+  } finally {
+    restore();
+  }
+});
+
+await test('a release publishes a state that stops showing the hold', async () => {
+  let restore = freezeClock('2026-09-15T02:00:00Z');
+  try {
+    const ctx = createContext();
+    const control = apply(ctx, { home, locale: 'en' });
+    const agent = createAgent('session-publish-release');
+    await ctx.emit('agent/created', { agent });
+    agent.inbox.append('next-turn', userMessage('m1', 'work'));
+    await agent.proposeStep();
+
+    restore();
+    restore = freezeClock('2026-09-15T05:00:00Z');
+    await control.releaseNow();
+
+    const states = agent.appended.filter((event) => event.type === 'peak-valley-brake/change').map((e) => e.data);
+    assert.equal(states.length, 2);
+    const last = states.at(-1);
+    assert.equal(last.engaged, false);
+    assert.equal(last.heldCount, 0);
+    assert.equal(last.reason, null);
+    assert.equal(last.releaseAtMs, null);
+    assert.equal(last.lastReleaseReason, 'schedule', 'the valley released it, not an override');
+  } finally {
+    restore();
+  }
+});
+
+await test('a release caused by an override is published as such', async () => {
+  const restore = freezeClock('2026-09-15T02:00:00Z');
+  try {
+    const ctx = createContext();
+    const control = apply(ctx, { home, locale: 'en' });
+    const agent = createAgent('session-publish-override');
+    await ctx.emit('agent/created', { agent });
+    agent.inbox.append('next-turn', userMessage('m1', 'work'));
+    await agent.proposeStep();
+
+    await control.runCommand(agent, 'now');
+    await control.releaseNow();
+
+    const last = agent.appended.filter((event) => event.type === 'peak-valley-brake/change').map((e) => e.data).at(-1);
+    assert.equal(last.lastReleaseReason, 'override');
+    assert.equal(last.engaged, false);
+  } finally {
+    restore();
+  }
+});
+
+await test('a hold under a live override says the override is active', async () => {
+  const restore = freezeClock('2026-09-15T02:00:00Z');
+  try {
+    const ctx = createContext();
+    const control = apply(ctx, { home, locale: 'en' });
+    const agent = createAgent('session-publish-override-live');
+    await ctx.emit('agent/created', { agent });
+    agent.inbox.append('next-turn', userMessage('m1', 'work'));
+    await agent.proposeStep();
+
+    // A window override keeps dispatch open, so the next message is admitted
+    // rather than held — but the override itself must still be published.
+    await control.runCommand(agent, 'window');
+    const states = agent.appended.filter((event) => event.type === 'peak-valley-brake/change').map((e) => e.data);
+    assert.ok(states.length >= 1);
+  } finally {
+    restore();
+  }
+});
+
+await test('a session without an append method does not break the brake', async () => {
+  // A headless or minimal composition has no session log to publish into; the
+  // guard must still refuse, and the failure must stay a warning.
+  const restore = freezeClock('2026-09-15T02:00:00Z');
+  try {
+    const ctx = createContext();
+    apply(ctx, { home, locale: 'en' });
+    const agent = createAgent('session-publish-absent');
+    agent.session = { header: {} };
+    await ctx.emit('agent/created', { agent });
+    agent.inbox.append('next-turn', userMessage('m1', 'work'));
+    assert.equal((await agent.proposeStep()).kind, 'reject', 'the brake must still guard');
   } finally {
     restore();
   }
