@@ -665,6 +665,27 @@ await test('a resized character stays on screen and clear of its own furniture',
 
 process.stdout.write('\nthe look\n');
 
+await test('the panel header is brand blue in every state, including a grey-bead one', () => {
+  // Reported: the tariff was off-peak and the whole bubble looked grey. The header dot and
+  // the LIVE pill were drawn in the state's bead colour, and off-peak's bead is grey by
+  // design — so the panel's own mark went grey too, which reads as "something is wrong"
+  // rather than as "everything is cheap". The design fixes those two to brand blue; the
+  // tariff's colour is carried by the row mark, where the design puts it.
+  const offPeak = { engaged: false, heldCount: 0, overrideActive: false, phase: 'open' };
+  const { badge, root, document: doc } = mount({ state: offPeak });
+  root.emit('pointerenter');
+  toolbarOf(doc).children[0].emit('click', { stopPropagation() {} });
+
+  const header = bubbleOf(doc).children[0];
+  const glow = header.children[0].children[0];
+  const pill = header.children[1];
+  assert.equal(beadLayer(doc, 'shell').style.background, '#8e9aa8', 'the bead is grey: the badge is doing nothing');
+  assert.match(glow.style.background, /brand-primary/u, 'but the panel header is not');
+  assert.match(pill.style.color, /brand-primary/u);
+  assert.equal(pill.textContent, 'LIVE');
+  badge.dispose();
+});
+
 await test('the panel stays a panel even if the stylesheet never lands', () => {
   // The reported bug: label left, value right is the design's tidiest property, and it
   // was expressed only in the injected stylesheet — which this project cannot observe

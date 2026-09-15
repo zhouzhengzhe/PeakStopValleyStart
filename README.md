@@ -270,6 +270,8 @@ The next change is published because only the host can answer it — the browser
 
 **The bead and the panel's mark answer different questions, and the design draws both.** The bead says what the *badge* is doing — grey when that is nothing, blue while it holds, red only when an override is spending money on purpose — with its halo radius carrying the intensity. The panel's tariff mark says what the *tariff* is, where off-peak is green because cheap is the good state. One shared colour would have made "cheap" and "nothing happening" look identical.
 
+The panel's *own* colour is neither of those: the header dot and the LIVE pill are brand blue in every state, because the design fixes them. Deriving them from the state accent made the whole header grey whenever the tariff was off-peak, which reads as "something is wrong" rather than as "everything is cheap". Three axes, three answers, and each one is asserted.
+
 The bar below is a pill of four tabs, each an icon above its label. The selected tab is *lighter* than the bar it sits in rather than tinted, as the design draws it, and the one it marks is the status tab — which is also the only operation that can never be unavailable. **The panel *is* the status**, so that tab pins the panel open rather than asking the host for a paragraph about the same facts; the mark travels as `aria-pressed` and is tied to whether the panel is actually open, so highlighting it states a fact rather than decorating a button. The other three still ask the host and show its answer, because a confirmation or a refusal is prose. An unavailable operation is dimmed rather than removed, because the bar doubles as the explanation of the current state.
 
 **Structure is inline; the stylesheet is decoration only.** This project cannot observe whether an injected sheet is applied in the operator's browser, so anything the badge's *shape* depends on is an inline style — the one mechanism the geometry already trusts. A row that is a row only because a class said `display: flex` becomes three stacked blocks the day the sheet does not apply, which is precisely what happened to the panel's label/value alignment. What is left in the injected `<style>` is what inline styles genuinely cannot express: keyframes, `:hover`/`:focus-visible`/`[aria-pressed]`, `backdrop-filter` with its prefixed twin, and one `prefers-reduced-motion` block. A case mounts into a document that refuses `<style>` outright and asserts the panel is still a panel.
@@ -365,7 +367,7 @@ node test/manifest.test.mjs         # assembly: manifest ↔ patch ↔ module ag
 node test/readme.test.mjs           # README.md and README.zh.md stay structurally in step
 ```
 
-376 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
+377 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
 
 They also need no harness running, so they sidestep the one-harness-per-`$DSH_HOME` constraint entirely — `npm test` is the fast way to check the plugin without touching a live profile.
 
