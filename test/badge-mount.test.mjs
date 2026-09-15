@@ -238,14 +238,36 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 /** Wait real milliseconds, for the cases that assert the grace period. */
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** The bubble is the element that gets a min-width; the toolbar gets a flex display. */
+/**
+ * The bubble and the toolbar, found by their own class hooks.
+ *
+ * These used to be found by sniffing a style value — the bubble by its `min-width`,
+ * the toolbar by its `gap`. That coupled the suite to a cosmetic number: changing
+ * the toolbar's spacing made every geometry case fail with "cannot read properties
+ * of undefined", which says nothing about what actually broke. Class names are the
+ * stable contract.
+ */
 function bubbleOf(document_) {
-  return document_.body.children.find((child) => child.style.minWidth === '150px');
+  return document_.body.children.find((child) => String(child.className ?? '').includes('pvb-bubble'));
 }
 
-/** The toolbar is the element whose display is toggled to flex. */
+/** The toolbar, by its own class hook. */
 function toolbarOf(document_) {
-  return document_.body.children.find((child) => child.style.gap === '4px');
+  return document_.body.children.find((child) => String(child.className ?? '').includes('pvb-toolbar'));
+}
+
+/** The state dot inside the character's element. */
+function dotOf(document_) {
+  return document_.body.children
+    .find((child) => child.id === 'peak-valley-brake-badge')
+    ?.children.find((child) => String(child.className ?? '').includes('pvb-dot'));
+}
+
+/** The character's image element. */
+function imageOf(document_) {
+  return document_.body.children
+    .find((child) => child.id === 'peak-valley-brake-badge')
+    ?.children.find((child) => child.tagName === 'img');
 }
 
 process.stdout.write('peak-valley-brake badge mounting\n\n');
@@ -636,6 +658,101 @@ await test('a resized character stays on screen and clear of its own furniture',
   }
 });
 
+process.stdout.write('\nthe look\n');
+
+await test('one accent colour reaches the dot, the panel edge and nothing else', () => {
+  // Derived from the same pose the character takes, so the dot, the panel and the art
+  // cannot describe three different instants.
+  const held = { engaged: true, heldCount: 2, releaseAtMs: Date.now() + 3_600_000 };
+  const { badge, document: doc } = mount({ state: held });
+  const accent = dotOf(doc).style.background;
+  assert.match(accent, /--dsw-alias-/u, 'the accent must come from the theme, not a literal');
+  assert.equal(bubbleOf(doc).style.borderLeftColor, accent, 'the panel edge must agree with the dot');
+  badge.dispose();
+});
+
+await test('a live override gets the one alarming colour', () => {
+  // Everything else is either quiet or the plugin working as intended; deliberately
+  // spending money at peak is the only state that earns a warning colour.
+  const { badge, document: doc } = mount({ state: { engaged: false, heldCount: 0, overrideActive: true, overrideUntilMs: Date.now() + 60_000 } });
+  assert.match(dotOf(doc).style.background, /state-error/u);
+  badge.dispose();
+});
+
+await test('the stylesheet is injected once and outlives any one mount', () => {
+  // It used to be removed on dispose, which meant the first mount to go away stripped
+  // the styling from a second mount that was still on screen and sharing it. It is
+  // inert and the module system collects a factory's style tags when the plugin
+  // unloads, which is when they are actually finished with.
+  const document_ = createDocument();
+  const options = {
+    document: document_,
+    window: createWindow(),
+    storage: createStorage(),
+    art: ART,
+    labels: {},
+    readState: () => undefined,
+    postAction: () => Promise.resolve({ ok: true }),
+  };
+  const first = mountBadge(options);
+  const second = mountBadge(options);
+  const styles = () => document_.body.children.filter((child) => child.tagName === 'style');
+  assert.equal(styles().length, 1, 'a re-mount must reuse the stylesheet, not stack a second copy');
+  first.dispose();
+  assert.equal(styles().length, 1, 'the mount still on screen must keep its styling');
+  second.dispose();
+  assert.equal(styles().length, 1, 'and the tag itself is inert once nothing is using it');
+});
+
+await test('the stylesheet switches its motion off on request', async () => {
+  // The character breathes and the panels rise. That is pleasant once and irritating
+  // forever to someone who has asked their system for less movement.
+  const source = await readFile(new URL('../lib/badge-mount.js', import.meta.url), 'utf8');
+  assert.match(source, /@media \(prefers-reduced-motion: reduce\)/u);
+  assert.match(source, /@keyframes pvb-breathe/u);
+  assert.match(source, /@keyframes pvb-pop/u);
+});
+
+await test('the toolbar gives the actions different weight', () => {
+  // Four identical buttons in a row read as a form. Reading the state is quiet, the
+  // bounded release is the solid one, and the two that spend money or undo a
+  // decision are outlines.
+  const held = { engaged: true, heldCount: 1, releaseAtMs: Date.now() + 3_600_000, phase: 'peak' };
+  const { badge, root, document: doc } = mount({ state: held });
+  root.emit('pointerenter');
+  const buttons = toolbarOf(doc).children;
+  assert.equal(buttons.length, 4);
+
+  const solid = buttons.filter((button) => button.style.background.includes('--dsw-alias-brand-primary'));
+  assert.equal(solid.length, 1, 'exactly one action should read as the primary one');
+  assert.equal(solid[0].textContent, 'now', 'and it should be the bounded release, not the open-ended one');
+
+  const outlined = buttons.filter((button) => button.style.borderColor !== undefined && button.style.borderColor !== 'transparent');
+  assert.ok(outlined.length >= 1, 'the open-ended release is offered, but as an outline');
+  assert.ok(
+    buttons.every((button) => button.className.includes('pvb-btn')),
+    'every button needs the class its hover and focus rules hang off',
+  );
+  badge.dispose();
+});
+
+await test('an unavailable action stays visible and explains itself', () => {
+  // The toolbar doubles as the explanation of the current state, so an operation that
+  // does not apply is dimmed rather than removed — removing it would remove the
+  // explanation, and its tooltip with it.
+  const { badge, root, document: doc } = mount({ state: { engaged: false, heldCount: 0, overrideActive: false } });
+  root.emit('pointerenter');
+  const buttons = toolbarOf(doc).children;
+  assert.equal(buttons.length, 4, 'all four operations keep their place');
+  const disabled = buttons.filter((button) => button.disabled);
+  assert.equal(disabled.length, 3);
+  for (const button of disabled) {
+    assert.ok(button.title !== '', `${button.textContent} must say why it is unavailable`);
+    assert.equal(Number.parseFloat(button.style.opacity), 0.5);
+  }
+  badge.dispose();
+});
+
 process.stdout.write('\nplacement and teardown\n');
 
 await test('the badge is placed inside the viewport', () => {
@@ -692,11 +809,13 @@ await test('a hostile storage does not stop the badge appearing', () => {
   assert.doesNotThrow(() => badge.dispose());
 });
 
-await test('dispose removes every element it added', () => {
+await test('dispose removes every element it showed, leaving only the inert stylesheet', () => {
   const { badge, body } = mount();
   assert.ok(body.children.length > 0);
   badge.dispose();
-  assert.equal(body.children.length, 0, 'a disposed badge must not leave orphans in the page');
+  const remaining = body.children.filter((child) => child.tagName !== 'style');
+  assert.equal(remaining.length, 0, 'a disposed badge must not leave anything visible in the page');
+  assert.equal(body.children.length, 1, 'the stylesheet is the only thing that stays, by design');
 });
 
 await test('re-mounting replaces the previous badge instead of stacking one', () => {

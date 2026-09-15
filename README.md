@@ -262,6 +262,10 @@ Hover the character and the toolbar appears: status, release once, release until
 
 A live override is shown even when nothing is held. It is the one state that spends money at peak deliberately, so the badge refuses to be quiet about it.
 
+The character breathes, casts a ground shadow, and carries a coloured dot for its state; the panel that explains a hold is edged in the same colour. One accent is derived from the pose decision, so the dot, the edge and the art cannot describe three different instants, and the dot is the state at a glance for when the bubble has been dismissed and the toolbar is hidden. The toolbar gives its operations different weights rather than four identical buttons: reading the state is quiet, releasing once is the solid one, and the two that either spend money until the valley or reverse a decision are outlines. An unavailable operation is dimmed rather than removed, because the toolbar doubles as the explanation of the current state.
+
+The three things a stylesheet can say and inline styles cannot — keyframes, `:hover`/`:focus-visible`, and `prefers-reduced-motion` — live in one injected `<style>`; everything derived from runtime numbers stays inline. Colours are only ever theme tokens: a misspelled custom property resolves to nothing and its literal fallback wins silently, which is how the badge spent its first version as a white box on a dark theme.
+
 ### Why the browser asks the host
 
 Reading the `peakValleyBrake` projection in the browser is the obvious design, and it cannot work. The client half of this harness provides `connection`, `locale`, `theme`, `chatFileMentions`, `sessionLogDownload` and the cordis runner's own pair — and no session registry and no projection registry. A client plugin that declares a service nobody provides is parked until it appears, so it never activates: the badge simply never mounts, and nothing anywhere reports an error.
@@ -349,7 +353,7 @@ node test/manifest.test.mjs         # assembly: manifest ↔ patch ↔ module ag
 node test/readme.test.mjs           # README.md and README.zh.md stay structurally in step
 ```
 
-350 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
+356 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
 
 They also need no harness running, so they sidestep the one-harness-per-`$DSH_HOME` constraint entirely — `npm test` is the fast way to check the plugin without touching a live profile.
 
