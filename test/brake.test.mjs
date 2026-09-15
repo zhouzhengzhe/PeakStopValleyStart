@@ -123,9 +123,20 @@ function createAgent(id, options = {}) {
     },
     /** Messages delivered through the waking path. */
     sent: [],
+    /**
+     * When set, the waking delivery throws instead of delivering.
+     *
+     * Exists because every other test used a `send` that always succeeds — which
+     * is exactly why a real delivery failure reached the operator as "the release
+     * command said it was releasing and then nothing happened", with no
+     * diagnosable trace anywhere they could look.
+     * @type {Error|undefined}
+     */
+    failSendWith: undefined,
     /** Deliver with a wake, mirroring `Agent.send`. */
     send(message, target, wakeup) {
       assert.equal(target, 'next-turn', 'the brake only sends to the next-turn boundary');
+      if (agent.failSendWith !== undefined) throw agent.failSendWith;
       agent.sent.push({ message, wakeup });
       inbox.push(message);
       void ctx.emit('agent/inbox/inserted', { agent, message });
@@ -1000,6 +1011,131 @@ await test('an off-peak step posts no receipt, because nothing was withheld', as
     agent.inbox.append('next-turn', userMessage('m1', 'work'));
     assert.equal((await agent.proposeStep()).kind, 'enter');
     assert.equal(agent.injected.length, 0);
+  } finally {
+    restore();
+  }
+});
+
+process.stdout.write('\nfailed re-delivery is diagnosable\n');
+
+await test('a failed waking delivery keeps the ledger so the work is not lost', async () => {
+  let restore = freezeClock('2026-09-15T02:00:00Z');
+  try {
+    const ctx = createContext();
+    const control = apply(ctx, { home, locale: 'en' });
+    const agent = createAgent('session-send-fails');
+    await ctx.emit('agent/created', { agent });
+    agent.inbox.append('next-turn', userMessage('m1', 'precious work'));
+    await agent.proposeStep();
+
+    agent.failSendWith = new Error('the harness refused the message');
+    restore();
+    restore = freezeClock('2026-09-15T05:00:00Z');
+    await control.releaseNow();
+
+    assert.equal(agent.pending.length, 0, 'nothing was delivered');
+    const { createHoldLedger } = await import('../lib/hold-ledger.js');
+    const stillHeld = await createHoldLedger({ home }).load('session-send-fails');
+    assert.equal(stillHeld.ok, true);
+    assert.ok(stillHeld.batch !== undefined, 'the ledger must survive a failed delivery, or the work is gone');
+    assert.equal(stillHeld.batch.messages.length, 1);
+  } finally {
+    restore();
+  }
+});
+
+await test('a failed delivery records the stage, the error, and the message shape', async () => {
+  let restore = freezeClock('2026-09-15T02:00:00Z');
+  try {
+    const ctx = createContext();
+    const control = apply(ctx, { home, locale: 'en' });
+    const agent = createAgent('session-delivery-log');
+    await ctx.emit('agent/created', { agent });
+    agent.inbox.append('next-turn', userMessage('m1', 'work'));
+    await agent.proposeStep();
+
+    agent.failSendWith = new TypeError('branded id rejected');
+    restore();
+    restore = freezeClock('2026-09-15T05:00:00Z');
+    await control.releaseNow();
+
+    const { createHoldLedger } = await import('../lib/hold-ledger.js');
+    const records = await createHoldLedger({ home }).readDeliveryOutcomes(50);
+    const failure = records.filter((record) => record.sessionId === 'session-delivery-log').at(-1);
+    assert.ok(failure !== undefined, 'a delivery attempt must always be recorded');
+    assert.equal(failure.outcome, 'failed');
+    assert.equal(failure.stage, 'send');
+    assert.equal(failure.errorName, 'TypeError');
+    assert.match(failure.error, /branded id rejected/u);
+    assert.equal(failure.delivered, 0);
+    assert.equal(failure.attempted, 1);
+    assert.ok(failure.messageShape !== undefined, 'the shape is what answers "was the message well-formed?"');
+    assert.ok(Array.isArray(failure.messageShape.keys));
+    assert.equal(failure.messageShape.role, 'user');
+  } finally {
+    restore();
+  }
+});
+
+await test('a successful delivery is recorded too, so absence is distinguishable', async () => {
+  let restore = freezeClock('2026-09-15T02:00:00Z');
+  try {
+    const ctx = createContext();
+    const control = apply(ctx, { home, locale: 'en' });
+    const agent = createAgent('session-delivery-ok');
+    await ctx.emit('agent/created', { agent });
+    agent.inbox.append('next-turn', userMessage('m1', 'work'));
+    await agent.proposeStep();
+
+    restore();
+    restore = freezeClock('2026-09-15T05:00:00Z');
+    await control.releaseNow();
+
+    const { createHoldLedger } = await import('../lib/hold-ledger.js');
+    const records = await createHoldLedger({ home }).readDeliveryOutcomes(50);
+    const record = records.filter((entry) => entry.sessionId === 'session-delivery-ok').at(-1);
+    assert.ok(record !== undefined, 'a pass that ran must leave a record');
+    assert.equal(record.outcome, 'delivered');
+    assert.equal(record.delivered, 1);
+  } finally {
+    restore();
+  }
+});
+
+await test('/peak-valley status surfaces the last delivery failure', async () => {
+  let restore = freezeClock('2026-09-15T02:00:00Z');
+  try {
+    const ctx = createContext();
+    const control = apply(ctx, { home, locale: 'en' });
+    const agent = createAgent('session-status-failure');
+    await ctx.emit('agent/created', { agent });
+    agent.inbox.append('next-turn', userMessage('m1', 'work'));
+    await agent.proposeStep();
+
+    agent.failSendWith = new Error('transport said no');
+    restore();
+    restore = freezeClock('2026-09-15T05:00:00Z');
+    await control.releaseNow();
+
+    // The failure is visible without reading a log the operator cannot reach.
+    const status = await control.runCommand(agent, 'status');
+    assert.match(status.text, /FAILED/u);
+    assert.match(status.text, /transport said no/u);
+    assert.match(status.text, /via send/u);
+  } finally {
+    restore();
+  }
+});
+
+await test('status stays quiet about delivery when nothing has failed', async () => {
+  const restore = freezeClock('2026-09-15T02:00:00Z');
+  try {
+    const ctx = createContext();
+    const control = apply(ctx, { home, locale: 'en' });
+    const agent = createAgent('session-status-clean');
+    await ctx.emit('agent/created', { agent });
+    const status = await control.runCommand(agent, 'status');
+    assert.ok(!/FAILED/u.test(status.text), 'a clean session must not carry a stale failure line');
   } finally {
     restore();
   }
