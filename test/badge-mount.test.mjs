@@ -852,6 +852,46 @@ await test('exactly one tab reads as the selected one, and it is the one that al
   badge.dispose();
 });
 
+await test('the status tab opens the panel instead of printing a paragraph about it', () => {
+  // The reported bug. Clicking status asked the host for the `/peak-valley status` text
+  // and printed it — a left-aligned paragraph about exactly the facts the panel draws as
+  // a dashboard — so the one tab the design highlights produced something that looked
+  // nothing like the design. It now pins the panel open, with no round trip at all.
+  const idle = { engaged: false, heldCount: 0, overrideActive: false, phase: 'open' };
+  const { badge, root, document: doc, posted } = mount({ state: idle });
+  assert.equal(bubbleOf(doc).style.display, 'none', 'nothing is happening, so the panel is away');
+
+  root.emit('pointerenter');
+  // The bar is rebuilt on every render, so each reading has to re-query it: holding a
+  // reference across a click reads a detached node and asserts the previous state.
+  toolbarOf(doc).children[0].emit('click', { stopPropagation() {} });
+
+  assert.equal(bubbleOf(doc).style.display, 'block', 'the panel is now open');
+  assert.equal(posted.length, 0, 'and the host was not asked for a paragraph');
+  const rows = bubbleOf(doc).children
+    .flatMap((child) => child.children ?? [])
+    .filter((child) => String(child.className ?? '') === 'pvb-row');
+  assert.equal(rows.length, 6, 'the pin shows the designed panel, not text');
+  assert.equal(toolbarOf(doc).children[0].attributes['aria-pressed'], 'true', 'and the mark says the panel is open');
+
+  toolbarOf(doc).children[0].emit('click', { stopPropagation() {} });
+  assert.equal(bubbleOf(doc).style.display, 'none', 'clicking again puts it away');
+  assert.equal(toolbarOf(doc).children[0].attributes['aria-pressed'], 'false');
+  badge.dispose();
+});
+
+await test('the release tabs still ask the host and show its answer in words', () => {
+  // Their answers are prose — a confirmation, a refusal — and prose is what the bubble
+  // shows. Only the status tab had a designed alternative.
+  const state = { engaged: true, heldCount: 1, releaseAtMs: Date.now() + 3_600_000, phase: 'peak' };
+  const { badge, root, document: doc, posted } = mount({ state });
+  root.emit('pointerenter');
+  const tabs = toolbarOf(doc).children;
+  tabs[1].emit('click', { stopPropagation() {} });
+  assert.deepEqual(posted, ['now']);
+  badge.dispose();
+});
+
 await test('an unavailable action stays visible and explains itself', () => {
   // The bar doubles as the explanation of the current state, so an operation that
   // does not apply is dimmed rather than removed — removing it would remove the
