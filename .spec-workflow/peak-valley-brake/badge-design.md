@@ -93,11 +93,26 @@
 
 ### 资源方向：形象图片
 
-四张 1122×1402 的 PNG 不能直接塞进 client bundle（会把它撑到几 MB）。方案：
+四张 1122×1402 的 PNG 不能直接塞进 client bundle（会把它撑到几 MB）。已压缩入库：`assets/mascot/{128,200,320}/<state>.png`，**6.26 MB → 0.58 MB**（128 规格四张仅约 74 KB）。
 
-- 图片入库到 `assets/mascot/`，**先压缩**到高度 512 的 PNG（预计每张 <60KB）
-- host 侧用 `ctx.webServer` 注册路由（已确认 `dsh-host-webserver` 在你的组合里）：`/plugins/peak-valley-brake/mascot/<n>.png`，带长缓存头
-- client 用 `<img src>` 引用
+**关键修正：设计初稿打算用 `ctx.webServer` 注册路由提供图片，这是错的。**
+
+`dsh-host-webserver` 的文档写得很明确：
+
+> 它只服务浏览器；**Electron 通过 `file://` 加载 dist**，并经 IPC 桥接承载 fetch。
+
+而 DSH Desktop 正是 Electron。所以 webServer 路由在桌面端**可能不可达**，徽章会裂图——一个我恰好无法在浏览器里验证的故障。
+
+**改用 data URI 内联**：把 128 规格的 PNG base64 后嵌进 client bundle。
+
+| | webServer 路由 | **data URI 内联** |
+|---|---|---|
+| 浏览器 | 可用 | 可用 |
+| Electron 桌面端 | **可能不可达** | 可用 |
+| 依赖 | webServer 路由 + 路径约定 | 无 |
+| 代价 | — | bundle 增大约 99 KB（懒加载，可接受） |
+
+由 `scripts/embed-mascot.ps1` 生成 `lib/mascot-data.js`（不改图就不需要重新生成）。这同时让 client bundle 自包含——不依赖任何宿主路由，也少一个失败点。
 
 ### 动作方向：客户端 → 宿主
 
@@ -107,6 +122,8 @@
 - host 侧接到后调用**已有的命令处理器**（`commandHandler`），复用同一套逻辑与审计，按钮与命令行行为严格一致
 
 这样按钮**不可能偏离命令语义**——它们是同一个函数。
+
+**但这里有一个待解决的对称问题**：动作端点走 HTTP，而 Electron 经 IPC 桥接 fetch——桥接是否覆盖任意路径、还是只覆盖 `/api`，我还没有核实。若只覆盖 `/api`，则动作端点也要改走 `@api` 前缀或另寻通道。**这是 client 阶段要先实测的第一件事。**
 
 ## 8. 需要你确认的取舍
 
