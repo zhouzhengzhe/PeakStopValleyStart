@@ -15,6 +15,7 @@
  */
 
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import { mountBadge, readPreferences, writePreferences, DEFAULT_SIZE_PX, MAX_SIZE_PX, MIN_SIZE_PX } from '../lib/badge-mount.js';
 
@@ -250,6 +251,22 @@ function toolbarOf(document_) {
 process.stdout.write('peak-valley-brake badge mounting\n\n');
 
 process.stdout.write('what it draws\n');
+
+await test('every custom property it reads is a real theme token', async () => {
+  // The badge's first version styled itself with `--dsw-surface`, `--dsw-text` and
+  // `--dsw-border`. None of those exist: the theme's tokens are all `--dsw-alias-*`
+  // (the theme service's built-in token directory is the authority). An unknown
+  // custom property is not an error in CSS, it is simply nothing — so every element
+  // quietly used its light-mode fallback and the badge would have stayed a white
+  // box on a dark theme, with no symptom anywhere to explain it. This asserts the
+  // prefix, so the next invented name fails here instead of in someone's dark mode.
+  const source = await readFile(new URL('../lib/badge-mount.js', import.meta.url), 'utf8');
+  const names = [...source.matchAll(/var\((--[a-z0-9-]+)/giu)].map((match) => match[1]);
+  assert.ok(names.length > 0, 'the badge must take its colours from the theme');
+  for (const name of names) {
+    assert.ok(name.startsWith('--dsw-alias-'), `${name} is not a theme token`);
+  }
+});
 
 await test('a badge mounts with the idle character and no bubble', () => {
   const { badge, root, document: doc } = mount();
