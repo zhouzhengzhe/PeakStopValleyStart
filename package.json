@@ -1,0 +1,46 @@
+{
+  "name": "dsh-peak-valley-brake",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DeepSeek Harness plugin: stop dispatching at peak API pricing, resume automatically off-peak, and never lose the withheld work",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./time-window": "./lib/time-window.js",
+    "./hold-ledger": "./lib/hold-ledger.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node test/time-window.test.mjs && node test/locale.test.mjs && node test/workspace-drift.test.mjs && node test/hold-ledger.test.mjs && node test/brake.test.mjs && node test/manifest.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-llm": "^0.1.5-rc.2"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "peak",
+    "off-peak",
+    "cost"
+  ],
+  "license": "MIT"
+}

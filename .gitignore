@@ -1,0 +1,13 @@
+# Dependencies — restored with `pnpm install`, never committed.
+node_modules/
+
+# Editor and OS noise.
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Local debugging and verification scratch, kept out of the published history.
+*.log
+*.tmp

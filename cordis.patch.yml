@@ -1,0 +1,12 @@
+# Bundle patch for the peak/valley brake: inserts its plugin row into a profile's
+# layer stack. Applied as a profile bundle layer (the `dsh.bundle.patch` manifest
+# field). Install with:
+#
+#   dsh plugin --profile web add link:<path to this directory>
+#
+# `name` must be this package's own name, because the loader resolves the row by
+# module specifier; `id` is what the profile patch layer targets for config
+# overrides. Both are asserted by test/manifest.test.mjs.
+- insert:
+    - id: peak-valley-brake
+      name: 'dsh-peak-valley-brake'
