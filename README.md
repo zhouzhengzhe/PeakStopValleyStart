@@ -231,15 +231,17 @@ Sometimes the work cannot wait for the valley. The `/peak-valley` command is the
 | Invocation | Effect |
 |---|---|
 | `/peak-valley` or `/peak-valley status` | Current tariff, whether dispatch is held and why, the next schedule change, how much work is held here, and any live override |
-| `/peak-valley now` | Release the held work once. The override covers one release pass and is then spent |
-| `/peak-valley window` | Let every session dispatch until the next schedule boundary |
+| `/peak-valley now` | Release the held work **once**. The next message you send is withheld again |
+| `/peak-valley window` | Keep dispatching until the next schedule boundary, so a normal back-and-forth works |
 | `/peak-valley cancel` | Drop a live override; the schedule governs again |
+
+**`now` and `window` are not the same command, and the difference bites.** `now` releases the queue once: it is the right choice for "get this one thing through". If you are mid-conversation, `window` is what you want, because `now` will withhold your very next message — and that reads as the command having failed. The hold receipt names both, for exactly that reason.
 
 **Why a slash command and not a model tool:** the brake refuses a step *before* the model runs, so a tool the model could call is unreachable exactly when it is needed. Harness commands run straight against the agent with no model message and no token cost, which makes them the only entry point that still works while dispatch is held.
 
 Three properties keep the override honest:
 
-- **It expires by itself.** `window` runs to the next schedule boundary — the guard cannot be left off indefinitely, and it re-arms without anyone remembering to switch it back on.
+- **It expires by itself.** Both kinds run to the next schedule boundary — the guard cannot be left off indefinitely, and it re-arms without anyone remembering to switch it back on.
 - **It is auditable.** Every release that the schedule would have held is appended to `overrides.ndjson` in the plugin's data directory: which session asked, when it was granted, when it was spent, and how the tariff was classified at that moment. Skipping cost policy is the operator's call to make, not one to make invisibly. The record goes to an append-only file rather than the per-session ledger, because the ledger is deleted by the very delivery the record describes.
 - **It is refusable.** `allowManualOverride: false` makes the command return an error rather than obey, so an operator can guarantee that no command overrides their cost policy.
 
@@ -314,7 +316,7 @@ node test/manifest.test.mjs         # assembly: manifest ↔ patch ↔ module ag
 node test/readme.test.mjs           # README.md and README.zh.md stay structurally in step
 ```
 
-201 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
+202 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
 
 They also need no harness running, so they sidestep the one-harness-per-`$DSH_HOME` constraint entirely — `npm test` is the fast way to check the plugin without touching a live profile.
 

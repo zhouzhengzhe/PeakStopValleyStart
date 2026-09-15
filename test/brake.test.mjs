@@ -1003,6 +1003,29 @@ await test('the receipt names the count withheld and when it returns', async () 
   }
 });
 
+await test('the receipt names both release commands, because they differ', async () => {
+  // A receipt that mentions only `now` invites the reading "release command =
+  // stop withholding", and the operator then finds their very next message
+  // withheld again — which reads as the command not working. Both commands have
+  // to be visible where the expectation is formed.
+  const restore = freezeClock('2026-09-15T02:00:00Z');
+  try {
+    const ctx = createContext();
+    apply(ctx, { home, locale: 'en' });
+    const agent = createAgent('session-receipt-commands');
+    await ctx.emit('agent/created', { agent });
+    agent.inbox.append('next-turn', userMessage('m1', 'work'));
+    await agent.proposeStep();
+
+    const shown = agent.injected[0].content.map((block) => block.text).join('\n');
+    assert.match(shown, /\/peak-valley now/u, 'the one-shot command must be named');
+    assert.match(shown, /\/peak-valley window/u, 'the continuous command must be named too');
+    assert.match(shown, /next message is withheld again/u, 'the one-shot limit must be stated, not implied');
+  } finally {
+    restore();
+  }
+});
+
 await test('the receipt summary stays within the harness bound', async () => {
   const restore = freezeClock('2026-09-15T02:00:00Z');
   try {
