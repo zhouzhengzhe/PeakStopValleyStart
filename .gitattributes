@@ -1,0 +1,22 @@
+# Normalize line endings in the repository.
+#
+# Without this, the same file is LF on one machine and CRLF on another, and every
+# `$`-anchored pattern in a checker silently stops matching on the CRLF copy.
+# That is not hypothetical: it is exactly how test/readme.test.mjs reported
+# "English has 24 headings, Chinese has 0" while both files were fine.
+#
+# `text=auto` stores LF in the repository and checks out the platform default.
+* text=auto
+
+# Shell scripts must keep LF even on Windows, or they fail to execute.
+*.sh text eol=lf
+
+# Windows-only scripts keep CRLF.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binary assets are left untouched.
+*.png binary
+*.jpg binary
+*.gif binary
+*.webp binary

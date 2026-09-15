@@ -1,5 +1,7 @@
 # dsh-peak-valley-brake
 
+[English](README.md) | [中文](README.zh.md)
+
 A DeepSeek Harness plugin that stops dispatching requests while the API is billed at peak rates, resumes automatically when off-peak pricing returns, and never loses the work it withheld.
 
 ## The problem it solves
@@ -296,9 +298,10 @@ node test/workspace-drift.test.mjs  # drift detection against real temporary git
 node test/hold-ledger.test.mjs      # durability, corruption, concurrent writes
 node test/brake.test.mjs            # host integration: hold, release, order, restart, drift, fail-open
 node test/manifest.test.mjs         # assembly: manifest ↔ patch ↔ module agreement
+node test/readme.test.mjs           # README.md and README.zh.md stay structurally in step
 ```
 
-184 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
+194 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
 
 They also need no harness running, so they sidestep the one-harness-per-`$DSH_HOME` constraint entirely — `npm test` is the fast way to check the plugin without touching a live profile.
 

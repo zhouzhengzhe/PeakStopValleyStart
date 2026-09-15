@@ -15,10 +15,11 @@
     "lib",
     "cordis.patch.yml",
     "README.md",
+    "README.zh.md",
     "LICENSE"
   ],
   "scripts": {
-    "test": "node test/time-window.test.mjs && node test/locale.test.mjs && node test/workspace-drift.test.mjs && node test/hold-ledger.test.mjs && node test/brake.test.mjs && node test/manifest.test.mjs"
+    "test": "node test/time-window.test.mjs && node test/locale.test.mjs && node test/workspace-drift.test.mjs && node test/hold-ledger.test.mjs && node test/brake.test.mjs && node test/manifest.test.mjs && node test/readme.test.mjs"
   },
   "engines": {
     "node": ">=20"
