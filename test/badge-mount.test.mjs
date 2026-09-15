@@ -16,7 +16,7 @@
 
 import assert from 'node:assert/strict';
 
-import { mountBadge, readPreferences, writePreferences } from '../lib/badge-mount.js';
+import { mountBadge, readPreferences, writePreferences, DEFAULT_SIZE_PX, MAX_SIZE_PX, MIN_SIZE_PX } from '../lib/badge-mount.js';
 
 const results = { passed: 0, failed: 0 };
 
@@ -69,12 +69,29 @@ function createElement(tagName) {
     disabled: false,
     draggable: true,
     parent: undefined,
-    /** Fixed size: the badge reads these to place itself. */
+    /**
+     * The element's box, as a browser would report it.
+     *
+     * This used to be two fixed numbers, which quietly made every geometry
+     * assertion meaningless: the code sized the character from its own state while
+     * the fake kept claiming 96px, so a placement that was correct looked wrong and
+     * one that was wrong could look correct. Sizes now come from the element's own
+     * inline style, with the same content-derived fallbacks the real layout would
+     * produce for the bubble and the toolbar.
+     */
     get offsetWidth() {
-      return 77;
+      const explicit = Number.parseFloat(this.style.width);
+      if (Number.isFinite(explicit) && explicit > 0) return explicit;
+      if (this.style.minWidth === '150px') return 180;
+      if (this.style.gap === '4px') return 240;
+      return 0;
     },
     get offsetHeight() {
-      return 96;
+      const explicit = Number.parseFloat(this.style.height);
+      if (Number.isFinite(explicit) && explicit > 0) return explicit;
+      if (this.style.minWidth === '150px') return 60;
+      if (this.style.gap === '4px') return 34;
+      return 0;
     },
     /** Follow the inline position the badge writes, as a real element would. */
     get offsetLeft() {
@@ -188,7 +205,7 @@ function createStorage() {
 function mount(options = {}) {
   const document_ = createDocument();
   const window_ = createWindow();
-  const storage = createStorage();
+  const storage = options.storage ?? createStorage();
   const posted = [];
   const badge = mountBadge({
     document: document_,
@@ -204,11 +221,21 @@ function mount(options = {}) {
         return Promise.resolve({ ok: true });
       }),
     subscribe: options.subscribe,
+    // Zero by default so a case that only cares about the end state does not have
+    // to sleep; the cases about the grace period ask for a real one.
+    hoverGraceMs: options.hoverGraceMs ?? 0,
+    ...(options.sizePx === undefined ? {} : { sizePx: options.sizePx }),
   });
   const root = document_.body.children.find((child) => child.id === 'peak-valley-brake-badge');
   const bubble = document_.body.children.find((child) => child !== root && child.style.borderRadius === '10px' && child.tagName === 'div' && child.children.length >= 0 && child !== root);
   return { document: document_, window: window_, storage, badge, root, bubble, posted, body: document_.body };
 }
+
+/** Let a pending zero-delay timer run. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+/** Wait real milliseconds, for the cases that assert the grace period. */
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** The bubble is the element that gets a min-width; the toolbar gets a flex display. */
 function bubbleOf(document_) {
@@ -262,14 +289,69 @@ await test('an unknown state falls back to the idle art instead of a broken imag
 
 process.stdout.write('\nthe toolbar\n');
 
-await test('the toolbar is hidden until the pointer arrives', () => {
+await test('the toolbar is hidden until the pointer arrives', async () => {
   const { badge, root, document: doc } = mount();
   assert.equal(toolbarOf(doc).style.display, 'none');
   root.emit('pointerenter');
   assert.equal(toolbarOf(doc).style.display, 'flex');
   root.emit('pointerleave');
+  await settle();
   assert.equal(toolbarOf(doc).style.display, 'none');
   badge.dispose();
+});
+
+await test('the toolbar survives the gap between the character and its buttons', async () => {
+  // The reason this test exists: the toolbar is positioned outside the character's
+  // box, so reaching a button always crosses a strip belonging to neither element.
+  // Hiding on the first `pointerleave` made every button unpressable — the toolbar
+  // vanished mid-crossing. Reaching the toolbar must cancel the pending hide.
+  const { badge, root, document: doc } = mount({ hoverGraceMs: 150 });
+  root.emit('pointerenter');
+  root.emit('pointerleave'); // stepping off the character...
+  toolbarOf(doc).emit('pointerenter'); // ...onto the toolbar
+  await wait(300);
+  assert.equal(toolbarOf(doc).style.display, 'flex', 'the buttons must still be there to press');
+  badge.dispose();
+});
+
+await test('a brief slip of the pointer does not take the toolbar away', async () => {
+  const { badge, root, document: doc } = mount({ hoverGraceMs: 150 });
+  root.emit('pointerenter');
+  root.emit('pointerleave');
+  await wait(20);
+  assert.equal(toolbarOf(doc).style.display, 'flex', 'well inside the grace period');
+  badge.dispose();
+});
+
+await test('the toolbar does go away once the pointer has really left', async () => {
+  const { badge, root, document: doc } = mount({ hoverGraceMs: 150 });
+  root.emit('pointerenter');
+  root.emit('pointerleave');
+  await wait(400);
+  assert.equal(toolbarOf(doc).style.display, 'none', 'a hover menu that never leaves is furniture');
+  badge.dispose();
+});
+
+await test('clicking a button keeps the toolbar up, so a second one is reachable', async () => {
+  const state = { engaged: true, heldCount: 1, releaseAtMs: Date.now() + 3_600_000 };
+  const { badge, root, document: doc } = mount({ state, hoverGraceMs: 150 });
+  root.emit('pointerenter');
+  const button = toolbarOf(doc).children.find((candidate) => candidate.disabled !== true);
+  button.emit('click', { stopPropagation() {} });
+  await wait(50);
+  assert.equal(toolbarOf(doc).style.display, 'flex');
+  badge.dispose();
+});
+
+await test('disposing stops a pending hide from touching a torn-down badge', async () => {
+  const { badge, root } = mount({ hoverGraceMs: 150 });
+  root.emit('pointerenter');
+  root.emit('pointerleave');
+  badge.dispose();
+  await wait(300);
+  // Reaching here without an exception is the assertion: the timer must not fire
+  // against removed elements.
+  assert.ok(true);
 });
 
 await test('the toolbar never covers the character', () => {
@@ -468,6 +550,73 @@ await test('an empty answer shows nothing rather than an empty box', () => {
   badge.showNotice('');
   assert.equal(bubbleOf(doc).style.display, 'none');
   badge.dispose();
+});
+
+process.stdout.write('\nthe size\n');
+
+await test('the character renders at a size you can actually see', () => {
+  // The first build rendered at 96px, which sampled the art well below one image
+  // pixel per device pixel and read as blurry rather than merely small.
+  const { badge, root } = mount();
+  assert.equal(Number.parseFloat(root.style.height), DEFAULT_SIZE_PX);
+  assert.ok(DEFAULT_SIZE_PX >= 128, 'the default must be legible without configuring anything');
+  badge.dispose();
+});
+
+await test('a stored size is honoured on the next mount', () => {
+  const storage = createStorage();
+  writePreferences(storage, { sizePx: 220 });
+  const { badge, root } = mount({ storage });
+  assert.equal(Number.parseFloat(root.style.height), 220);
+  badge.dispose();
+});
+
+await test('a stored size outside the range is brought back into it', () => {
+  // A hand-edited or hostile store must not produce a 4-pixel or 4000-pixel badge.
+  for (const [stored, expected] of [[1, MIN_SIZE_PX], [99999, MAX_SIZE_PX], ['huge', DEFAULT_SIZE_PX]]) {
+    const storage = createStorage();
+    writePreferences(storage, { sizePx: stored });
+    const { badge, root } = mount({ storage });
+    assert.equal(Number.parseFloat(root.style.height), expected, `${JSON.stringify(stored)} must resolve to ${expected}`);
+    badge.dispose();
+  }
+});
+
+await test('setSize clamps, persists, and reports what it applied', () => {
+  const { badge, root, storage } = mount();
+  assert.equal(badge.setSize(200), 200);
+  assert.equal(Number.parseFloat(root.style.height), 200);
+  assert.equal(readPreferences(storage).sizePx, 200, 'a resize must survive a reload');
+  assert.equal(badge.setSize(10), MIN_SIZE_PX, 'and must report the clamped value, not the request');
+  assert.equal(badge.setSize(99999), MAX_SIZE_PX);
+  badge.dispose();
+});
+
+await test('an option size only applies when nothing was ever stored', () => {
+  // Otherwise the host's configured default would silently undo the operator's own
+  // choice every time the page reloaded.
+  const storage = createStorage();
+  writePreferences(storage, { sizePx: 300 });
+  const { badge, root } = mount({ storage, sizePx: 100 });
+  assert.equal(Number.parseFloat(root.style.height), 300);
+  badge.dispose();
+});
+
+await test('a resized character stays on screen and clear of its own furniture', () => {
+  for (const size of [MIN_SIZE_PX, DEFAULT_SIZE_PX, MAX_SIZE_PX]) {
+    const state = { engaged: true, heldCount: 2, releaseAtMs: Date.now() + 3_600_000 };
+    const { badge, root, document: doc, window: win } = mount({ state, sizePx: size });
+    root.emit('pointerenter');
+    const top = Number.parseFloat(root.style.top);
+    const left = Number.parseFloat(root.style.left);
+    assert.ok(top >= 0 && top + root.offsetHeight <= win.innerHeight, `size ${size} must fit vertically`);
+    assert.ok(left >= 0 && left + root.offsetWidth <= win.innerWidth, `size ${size} must fit horizontally`);
+    const bubbleTop = Number.parseFloat(bubbleOf(doc).style.top);
+    const toolbarTop = Number.parseFloat(toolbarOf(doc).style.top);
+    assert.ok(bubbleTop >= 0, `size ${size}: the bubble must stay on screen`);
+    assert.ok(toolbarTop >= 0, `size ${size}: the toolbar must stay on screen`);
+    badge.dispose();
+  }
 });
 
 process.stdout.write('\nplacement and teardown\n');

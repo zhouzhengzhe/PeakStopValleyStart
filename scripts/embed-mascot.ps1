@@ -6,8 +6,12 @@
 # be checked for a broken image by the test suite. Inlining removes the
 # dependency entirely and makes the client bundle self-contained.
 #
-# Cost: the 128-pixel set is about 74 KB of PNG, ~99 KB once base64-encoded, in a
-# lazily-loaded bundle. That is a fair trade for one fewer way to fail.
+# Cost: the 320-pixel set is about 363 KB of PNG, ~484 KB once base64-encoded, in a
+# bundle the harness serves from localhost and caches immutably. The first build
+# embedded the 128-pixel set, which was fine for a 96-pixel badge and is not fine
+# for a badge that renders up to 320: sampling 128 image pixels across 320 device
+# pixels is what "too small to see clearly" actually was. Detail is the point of a
+# character, so the largest derivative wins and the bytes are the price.
 #
 #   pwsh -File scripts/embed-mascot.ps1
 #
@@ -16,10 +20,12 @@
 
 [CmdletBinding()]
 param(
-  [string] $AssetDirectory = (Join-Path $PSScriptRoot '..\assets\mascot\128'),
+  [string] $AssetDirectory = (Join-Path $PSScriptRoot '..\assets\mascot\320'),
   [string] $OutputFile = (Join-Path $PSScriptRoot '..\lib\mascot-data.js'),
-  # The size whose art is embedded. 128 covers the 64-pixel compact badge at 2x.
-  [string] $Size = '128'
+  # The size whose art is embedded. 320 covers the largest size the badge renders,
+  # at 1x, with nothing to spare — so a future size increase needs a new derivative
+  # rather than a silent blur.
+  [string] $Size = '320'
 )
 
 $ErrorActionPreference = 'Stop'
