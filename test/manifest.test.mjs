@@ -52,6 +52,29 @@ await test('the manifest declares a bundle patch and points at a real file', asy
   assert.ok(contents.length > 0);
 });
 
+await test('the client declaration names a platform the module system accepts', () => {
+  assert.equal(typeof manifest.dsh?.client?.platform, 'string');
+  assert.equal(manifest.dsh.client.platform, 'web', 'the desktop shell serves the web platform');
+});
+
+await test('the client declaration asks for no module ordering it does not need', () => {
+  // `dsh.client.inject` is a list of *package* ids to arrive before this bundle —
+  // module ordering, not cordis services, which are declared by the client
+  // module's own `inject` export. This bundle calls no `require`, so it has no
+  // ordering dependency, and naming service names here would be a category error
+  // that only shows up as a boot composition failure.
+  assert.equal(manifest.dsh.client.inject, undefined);
+});
+
+await test('the client export points at the built bundle, not the ESM source', () => {
+  // The harness serves whatever `exports["./client"]` names straight to a browser
+  // as a classic script. Pointing it at the ESM source would serve `import`
+  // statements to a page that cannot resolve them, and the bundle would never
+  // call `__ModuleLoader__.load`: the badge would simply never appear, with no
+  // error a human would connect to this field.
+  assert.equal(manifest.exports?.['./client'], './lib/client.bundle.js');
+});
+
 await test('the manifest ships every file the runtime needs', () => {
   const shipped = manifest.files ?? [];
   for (const required of ['lib', 'cordis.patch.yml']) {
@@ -181,6 +204,29 @@ await test('the manifest exports point at modules that exist', async () => {
     const contents = await readFile(resolved, 'utf8');
     assert.ok(contents.length > 0, `${key} must resolve to a non-empty module`);
   }
+});
+
+await test('the client bundle is a loader registration and not the ESM source', async () => {
+  const source = await readFile(join(root, manifest.exports['./client']), 'utf8');
+  assert.match(source, /window\.__ModuleLoader__\.load\(/u, 'a client bundle must register itself');
+  assert.match(source, /id:\s*"dsh-peak-valley-brake"/u);
+  assert.ok(
+    !/^\s*import\s/mu.test(source),
+    'a served bundle must not contain import statements a browser cannot resolve',
+  );
+});
+
+await test('the client bundle being served is the one the source builds', async () => {
+  // The bundle is committed, so it can silently fall behind the source it was
+  // built from — and a stale bundle is a bug that only appears in a browser.
+  // Rebuilding and comparing is the only check that does not need one.
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const { readFile: read } = await import('node:fs/promises');
+  const before = await read(join(root, 'lib', 'client.bundle.js'), 'utf8');
+  await promisify(execFile)(process.execPath, [join(root, 'scripts', 'build-client.mjs')], { cwd: root });
+  const after = await read(join(root, 'lib', 'client.bundle.js'), 'utf8');
+  assert.equal(after, before, 'lib/client.bundle.js is out of date; run `node scripts/build-client.mjs`');
 });
 
 await test('the package name is a valid npm specifier the loader can resolve', () => {

@@ -140,6 +140,15 @@ test('a pinned bubble shows even when idle', () => {
   assert.equal(shouldShowBubble(state(), { forceShow: true }), true);
 });
 
+test('a live override is shown, because it is the one thing spending money at peak', () => {
+  // `bubbleContentFor` writes text for an override, so a visibility rule that
+  // suppressed it while idle would leave the badge silent about the most
+  // expensive state it knows — the two functions have to agree.
+  const overridden = state({ overrideActive: true, overrideUntilMs: NOW });
+  assert.equal(shouldShowBubble(overridden), true);
+  assert.notEqual(bubbleContentFor(overridden, NOW), undefined);
+});
+
 test('the held bubble reports the count and the release time', () => {
   const content = bubbleContentFor(state({ engaged: true, heldCount: 2, releaseAtMs: NOW }), NOW, {
     held: '已拦截',

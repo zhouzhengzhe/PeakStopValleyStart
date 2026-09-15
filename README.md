@@ -247,6 +247,31 @@ Three properties keep the override honest:
 
 An override never survives a restart: it is process-local state, because the whole point of a brake is that it re-arms by itself.
 
+## The badge
+
+The plugin also puts a badge in the corner of the Web UI: a character whose pose is the guard's state, with the same operations the slash command offers behind a hover toolbar.
+
+| Pose | Meaning |
+|---|---|
+| `idle` | off-peak, nothing withheld |
+| `armed` | inside the pre-peak brace; the brake is about to engage |
+| `held` | peak, work is being withheld |
+| `released` | work has just been delivered |
+
+Hover the character and the toolbar appears: status, release once, release until the valley, cancel the override. Each button runs the same handler as its subcommand, so a button and the command line cannot describe one operation two ways — the answer is printed in the bubble, in the command's own words. Drag the character to move it, click it to toggle the bubble; both are remembered per browser.
+
+A live override is shown even when nothing is held. It is the one state that spends money at peak deliberately, so the badge refuses to be quiet about it.
+
+### Why the browser asks the host
+
+Reading the `peakValleyBrake` projection in the browser is the obvious design, and it cannot work. The client half of this harness provides `connection`, `locale`, `theme`, `chatFileMentions`, `sessionLogDownload` and the cordis runner's own pair — and no session registry and no projection registry. A client plugin that declares a service nobody provides is parked until it appears, so it never activates: the badge simply never mounts, and nothing anywhere reports an error.
+
+So the state travels over `POST /api/peak-valley-brake.action`, which the host can answer because the host owns both services and is the only side that knows which session the operator is looking at. The badge's first poll names no session; the host answers with one, and the badge sends it back from then on. Every answer carries the current state, so acting and refreshing are one round trip rather than two.
+
+### Why the badge sits behind the same fence
+
+The route is claimed under `/api`, which this harness gives to exactly one owner: that owner authenticates the browser and validates `Host`/`Origin` before dispatching to registered exact paths. A badge route registered anywhere else would stand outside that fence, and an unclaimed path under `/api` returns 404 rather than falling through to another owner. The action vocabulary is closed — `poll`, `status`, `now`, `window`, `cancel` — so a malformed or hostile request cannot reach the command handler with arbitrary input.
+
 ## Writing a plugin that loads in this harness
 
 Three contracts cost real debugging time to discover, and all three fail with messages that do not name the cause. They are recorded here because any plugin in this ecosystem hits them. Each is asserted in `test/manifest.test.mjs`, so a future edit cannot silently reintroduce them.
@@ -316,7 +341,7 @@ node test/manifest.test.mjs         # assembly: manifest ↔ patch ↔ module ag
 node test/readme.test.mjs           # README.md and README.zh.md stay structurally in step
 ```
 
-202 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
+329 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
 
 They also need no harness running, so they sidestep the one-harness-per-`$DSH_HOME` constraint entirely — `npm test` is the fast way to check the plugin without touching a live profile.
 
@@ -324,16 +349,25 @@ They also need no harness running, so they sidestep the one-harness-per-`$DSH_HO
 
 ```
 dsh-peak-valley-brake
-├── package.json          # dsh.bundle.patch declaration
-├── cordis.patch.yml      # the plugin row inserted into a profile
+├── package.json           # dsh.bundle.patch and dsh.client declarations
+├── cordis.patch.yml       # the plugin row inserted into a profile
 ├── lib/
-│   ├── time-window.js    # pure schedule arithmetic; no I/O, no ambient clock
-│   ├── messages.js       # the zh/en dictionaries
-│   ├── locale.js         # language resolution
-│   ├── hold-ledger.js    # durable record of withheld work
-│   ├── workspace-drift.js# workspace fingerprinting and drift reporting
-│   └── index.js          # the brake: pre-step guard, release scheduler, re-delivery
-└── test/                 # six self-checking suites
+│   ├── time-window.js     # pure schedule arithmetic; no I/O, no ambient clock
+│   ├── messages.js        # the zh/en dictionaries
+│   ├── locale.js          # language resolution
+│   ├── hold-ledger.js     # durable record of withheld work
+│   ├── workspace-drift.js # workspace fingerprinting and drift reporting
+│   ├── hold-state.js      # the session event and projection a client reads
+│   ├── badge-view.js      # pure badge decisions: pose, bubble, toolbar
+│   ├── badge-mount.js     # the badge as DOM, a function of its dependencies
+│   ├── badge-api.js       # the host route the toolbar buttons call
+│   ├── client.js          # client entry: polls the host, mounts the badge
+│   ├── client.bundle.js   # built, committed, served to the browser
+│   ├── mascot-data.js     # generated art, inlined as data URIs
+│   └── index.js           # the brake: pre-step guard, release scheduler, re-delivery
+├── assets/mascot/         # character art per state, plus generated derivatives
+├── scripts/               # art generation and the client bundle build
+└── test/                  # thirteen self-checking suites
 ```
 
 `lib/time-window.js` is deliberately pure: it takes an instant and returns a classification, reading no clock and performing no I/O. That is what makes "why was this request held?" answerable by recomputation rather than by trusting a log.
@@ -346,11 +380,12 @@ dsh-peak-valley-brake
 - The release timer is a single shared timer, re-armed from the current clock at every boundary rather than accumulated, so a system clock change shifts the answer instead of corrupting it.
 - Drift detection needs git. In a workspace that is not a repository it reports "could not be checked" instead of guessing, so the model is told to re-read rather than told a change happened.
 - The hold receipt is injected as model-facing context (`source.form: 'notice'`), so it appears in the transcript as a collapsed notice rather than as a chat message. Its rendering has been verified against the harness message types and against the shape an in-box plugin already uses, but not yet observed in a live conversation.
-- There is no client-side status badge. `/peak-valley status` is the current way to read the brake's state, and the log line is the other.
+- The badge's appearance has not been observed by this project. Its composition into the real boot graph, the loader contract it satisfies, and its behaviour against a fake document are all asserted; what it looks like in a browser is checked by a human.
+- The badge polls. A push channel would need a client-side subscription the client half does not offer, so it costs one small authenticated request every few seconds while a page is open.
 
 ## Development
 
-The suite needs no harness, no network, and no API credit — it is the fastest way to check a change without touching a live profile. `npm test` runs all seven files; each also runs on its own, which is what you want while iterating.
+The suite needs no harness, no network, and no API credit — it is the fastest way to check a change without touching a live profile. `npm test` runs all thirteen files; each also runs on its own, which is what you want while iterating.
 
 ### The pre-push gate
 

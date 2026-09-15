@@ -59,12 +59,16 @@ function post(body) {
  * @param {object} [options] - overrides.
  * @param {object} [options.agent] - the agent `agentForSession` should return.
  * @param {(agent: object, subcommand: string) => Promise<object>} [options.runCommand] - command runner.
+ * @param {string} [options.resolved] - what `resolveSessionId` returns.
+ * @param {object} [options.state] - what `stateForSession` returns.
  * @returns {{handler: Function, calls: object[]}} the handler and its call log.
  */
 function host(options = {}) {
   const calls = [];
   const handler = createBadgeRouteHandler({
     agentForSession: (sessionId) => (sessionId === 'session-live' ? (options.agent ?? { id: sessionId }) : undefined),
+    resolveSessionId: () => ('resolved' in options ? options.resolved : 'session-live'),
+    stateForSession: () => options.state,
     runCommand:
       options.runCommand ??
       ((agent, subcommand) => {
@@ -87,8 +91,15 @@ await test('the path sits under the authenticated /api prefix', () => {
 });
 
 await test('the action vocabulary is closed and maps onto real subcommands', () => {
-  assert.deepEqual(Object.keys(BADGE_ACTIONS).sort(), ['cancel', 'now', 'status', 'window']);
-  for (const subcommand of Object.values(BADGE_ACTIONS)) {
+  assert.deepEqual(Object.keys(BADGE_ACTIONS).sort(), ['cancel', 'now', 'poll', 'status', 'window']);
+  for (const [action, subcommand] of Object.entries(BADGE_ACTIONS)) {
+    if (action === 'poll') {
+      // The one read-only action. It exists because the client half of this
+      // harness provides no projection service, so the browser cannot read the
+      // published state on its own.
+      assert.equal(subcommand, null);
+      continue;
+    }
     assert.ok(['status', 'now', 'window', 'cancel'].includes(subcommand));
   }
 });
@@ -103,18 +114,30 @@ await test('every advertised action parses to its subcommand', () => {
   }
 });
 
+await test('an absent session id is accepted, because the host resolves it', () => {
+  // The badge cannot know a session on its first poll: the client half provides
+  // no session registry. Refusing that request would mean the badge could never
+  // take its first reading.
+  for (const sessionId of [undefined, null, '', '   ']) {
+    const parsed = parseBadgeAction({ action: 'poll', sessionId });
+    assert.equal(parsed.ok, true, `${JSON.stringify(sessionId)} must be accepted`);
+    assert.equal(parsed.sessionId, undefined);
+  }
+});
+
+await test('a session id of the wrong type is refused', () => {
+  for (const sessionId of [42, {}, ['session-live'], true]) {
+    const parsed = parseBadgeAction({ action: 'now', sessionId });
+    assert.equal(parsed.ok, false, `${JSON.stringify(sessionId)} must be refused`);
+    assert.match(parsed.error, /sessionId must be a string/u);
+  }
+});
+
 await test('an unknown action is refused rather than forwarded', () => {
   const parsed = parseBadgeAction({ action: 'delete-everything', sessionId: 'session-live' });
   assert.equal(parsed.ok, false);
   assert.equal(parsed.status, 400);
   assert.match(parsed.error, /action must be one of/u);
-});
-
-await test('a missing or blank session id is refused', () => {
-  for (const sessionId of [undefined, null, '', '   ', 42, {}]) {
-    const parsed = parseBadgeAction({ action: 'now', sessionId });
-    assert.equal(parsed.ok, false, `${JSON.stringify(sessionId)} must be refused`);
-  }
 });
 
 await test('a non-object body is refused', () => {
@@ -173,13 +196,68 @@ await test('a command error returns 409 carrying its text', () => {
 process.stdout.write('\nthe route\n');
 
 await test('an accepted action runs the mapped subcommand for the named session', async () => {
-  const { handler, calls } = host();
+  const { handler, calls } = host({ state: { engaged: true, heldCount: 2 } });
   const response = await handler(post('{"action":"window","sessionId":"session-live"}'));
   assert.equal(response.status, 200);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].subcommand, 'window');
   assert.equal(calls[0].agent.id, 'session-live');
-  assert.deepEqual(await response.json(), { ok: true, kind: 'success', text: 'ran window' });
+  assert.deepEqual(await response.json(), {
+    ok: true,
+    kind: 'success',
+    text: 'ran window',
+    sessionId: 'session-live',
+    state: { engaged: true, heldCount: 2 },
+  });
+});
+
+await test('an action with no session id runs against the session the host resolves', async () => {
+  // What the badge's very first request looks like.
+  const { handler, calls } = host();
+  const response = await handler(post('{"action":"status"}'));
+  assert.equal(response.status, 200);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].agent.id, 'session-live');
+  assert.equal((await response.json()).sessionId, 'session-live');
+});
+
+await test('every answer carries the state, so a button needs no second request', async () => {
+  const { handler } = host({ state: { engaged: false, heldCount: 0 } });
+  for (const action of ['poll', 'status', 'now', 'window', 'cancel']) {
+    const body = await (await handler(post(JSON.stringify({ action, sessionId: 'session-live' })))).json();
+    assert.deepEqual(body.state, { engaged: false, heldCount: 0 }, `${action} must report the state`);
+  }
+});
+
+await test('poll answers with state and runs no command', async () => {
+  const { handler, calls } = host({ state: { engaged: true, heldCount: 3 } });
+  const response = await handler(post('{"action":"poll"}'));
+  assert.equal(response.status, 200);
+  assert.equal(calls.length, 0, 'poll must not reach the command handler');
+  assert.deepEqual(await response.json(), {
+    ok: true,
+    kind: 'state',
+    text: '',
+    sessionId: 'session-live',
+    state: { engaged: true, heldCount: 3 },
+  });
+});
+
+await test('a composition tracking no session says so instead of pretending', async () => {
+  // Nothing has been braked yet in this process, so there is no session to
+  // describe. The badge shows its idle pose and asks again on the next poll.
+  const { handler, calls } = host({ resolved: undefined });
+  const response = await handler(post('{"action":"poll"}'));
+  assert.equal(response.status, 404);
+  assert.equal(calls.length, 0);
+  assert.match((await response.json()).error, /no session is currently tracked/u);
+});
+
+await test('a session with no published state still answers, with a null state', async () => {
+  const { handler } = host({ state: undefined });
+  const body = await (await handler(post('{"action":"poll","sessionId":"session-live"}'))).json();
+  assert.equal(body.ok, true);
+  assert.equal(body.state, null, 'a null state is a fact the badge can draw; a 404 would be a dead badge');
 });
 
 await test('a session with no live agent is reported as such', async () => {
@@ -192,7 +270,7 @@ await test('a session with no live agent is reported as such', async () => {
 
 await test('a rejected body never reaches the command runner', async () => {
   const { handler, calls } = host();
-  for (const body of ['', '{bad', '{"action":"nope","sessionId":"session-live"}', '{"action":"now"}']) {
+  for (const body of ['', '{bad', '{"action":"nope","sessionId":"session-live"}', '{"action":"now","sessionId":42}']) {
     const response = await handler(post(body));
     assert.ok(response.status >= 400, `body ${JSON.stringify(body)} must be rejected`);
   }
