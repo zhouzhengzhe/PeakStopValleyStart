@@ -121,6 +121,19 @@ failed to apply loader entry ui-task-board (@linxin666/dsh-client-ui-task-board)
     releaseDelayMinutes: 2
 ```
 
+#### 用 `id` 定位配置，绝不要用 `insert`
+
+行式插件已经通过自己的 bundle patch 插入了它那一行。再加一条就会让**整个启动失败**：
+
+```
+failed to apply loader entry peak-valley-brake (dsh-peak-valley-brake):
+  duplicate loader entry id: peak-valley-brake
+```
+
+所以上面那条是**按 `id` 定位、覆盖已存在的那一行**，而不是"新增一行"的指令。写成 `- insert: [{ id: …, name: … }]` 看起来等价，其实不等价——加载器会插入第二行同 id 的条目，然后拒绝整个 profile。
+
+这个坑值得知道，因为报错点名的是**插件**而不是补丁条目，第一眼看上去像是插件本身的缺陷。
+
 ### 如果 DeepSeek 改了时段
 
 时段表是内置的，为的是让守卫在无网络时行为完全可预测——这留下一个风险：官方改规则后，内置表在新版本发布前都是错的。`peakWindowsOverride` 补上这个缺口。它接收一个 UTC 分钟制窗口的 JSON 数组，运维当天就能响应：

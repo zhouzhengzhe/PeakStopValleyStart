@@ -121,6 +121,19 @@ Add an `id`-targeted entry to the profile's `cordis.patch.yml` to change any of 
     releaseDelayMinutes: 2
 ```
 
+#### Configure it by `id`, never by `insert`
+
+A row-shaped plugin already inserts its own entry through its bundle patch. Adding a second one fails the whole boot:
+
+```
+failed to apply loader entry peak-valley-brake (dsh-peak-valley-brake):
+  duplicate loader entry id: peak-valley-brake
+```
+
+So the entry above is an **`id`-targeted override of the existing row**, not an instruction to add one. Writing it as `- insert: [{ id: …, name: … }]` looks equivalent and is not — the loader then inserts a second row with the same id and refuses the profile.
+
+The failure mode is worth knowing about because the message names the plugin rather than the patch entry, which makes it look like a plugin defect on first reading.
+
 ### If DeepSeek changes the windows
 
 The table is built in so the guard behaves predictably with no network — which leaves one risk: a schedule change makes the built-in table wrong until a new release ships. `peakWindowsOverride` closes that gap. It takes a JSON array of UTC minute-of-day windows, so an operator can react the same day:
