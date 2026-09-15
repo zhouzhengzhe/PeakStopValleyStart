@@ -665,6 +665,45 @@ await test('a resized character stays on screen and clear of its own furniture',
 
 process.stdout.write('\nthe look\n');
 
+await test('the panel stays a panel even if the stylesheet never lands', () => {
+  // The reported bug: label left, value right is the design's tidiest property, and it
+  // was expressed only in the injected stylesheet — which this project cannot observe
+  // being applied. A row that is a row only because a class said `display: flex` becomes
+  // three stacked blocks the day the sheet does not apply. So the structure is inline
+  // and this mounts into a document that refuses `<style>` outright.
+  const document_ = createDocument();
+  const appendChild = document_.body.appendChild.bind(document_.body);
+  document_.body.appendChild = (child) => {
+    if (child.tagName === 'style') throw new Error('this document refuses stylesheets');
+    return appendChild(child);
+  };
+  const badge = mountBadge({
+    document: document_,
+    window: createWindow(),
+    storage: createStorage(),
+    art: ART,
+    labels: {},
+    readState: () => ({ engaged: true, heldCount: 2, releaseAtMs: Date.now() + 3_600_000, phase: 'peak' }),
+    postAction: () => Promise.resolve({ ok: true }),
+  });
+
+  const row = bubbleOf(document_).children
+    .flatMap((child) => child.children ?? [])
+    .find((child) => String(child.className ?? '') === 'pvb-row');
+  assert.notEqual(row, undefined, 'the panel must render its rows');
+  assert.equal(row.style.display, 'flex');
+  assert.equal(row.style.justifyContent, 'space-between', 'label hard left, value hard right');
+  const value = row.children.find((child) => String(child.className ?? '').includes('pvb-row-value'));
+  assert.equal(value.style.textAlign, 'right');
+  assert.equal(row.children[0].style.whiteSpace, 'nowrap', 'and a long label must not wrap under the value');
+
+  const tab = toolbarOf(document_).children[0];
+  assert.equal(tab.style.display, 'flex');
+  assert.equal(tab.style.flexDirection, 'column', 'the glyph sits above its label');
+  assert.equal(tab.style.width, '81px');
+  badge.dispose();
+});
+
 await test('the bead carries the state, and the panel row carries the tariff', () => {
   // Two axes, and the design draws both. The bead says what the *badge* is doing — blue
   // while it holds, because that is the plugin working. The panel's mark says what the
@@ -764,7 +803,7 @@ await test('the stylesheet switches its motion off on request', async () => {
   assert.match(source, /@keyframes pvb-pop/u);
 });
 
-await test('the bar offers four tabs, each an icon over its label', async () => {
+await test('the bar offers four tabs, each an icon over its label', () => {
   // The design's tab: an 18px glyph above a 10px label, in a pill. The icon is a mask
   // so that one SVG serves both the selected and the unselected state, taking its
   // colour from the tab's own text colour.
@@ -781,11 +820,11 @@ await test('the bar offers four tabs, each an icon over its label', async () => 
     assert.notEqual(icon, undefined, 'each tab has a glyph');
     assert.notEqual(label, undefined, 'each tab has a label');
     assert.match(icon.style.maskImage, /^url\("data:image\/svg\+xml,/u, 'the glyph is a mask, so it takes the colour');
+    // The colour itself is `currentColor`, so one glyph serves the selected and the
+    // unselected tab, and it is inline because the glyph's size is structure.
+    assert.equal(icon.style.backgroundColor, 'currentColor');
+    assert.equal(icon.style.maskSize, 'contain');
   }
-  // The colour itself is `currentColor` in the stylesheet, so one glyph serves the
-  // selected and the unselected tab.
-  const source = await readFile(new URL('../lib/badge-mount.js', import.meta.url), 'utf8');
-  assert.match(source, /\.pvb-tab-icon\s*\{[^}]*background-color:\s*currentColor/u);
   assert.deepEqual(
     tabs.map((tab) => tab.children.find((child) => String(child.className ?? '') === 'pvb-tab-label').textContent),
     ['status', 'now', 'window', 'cancel'],

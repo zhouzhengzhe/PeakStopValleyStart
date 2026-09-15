@@ -270,7 +270,11 @@ The panel above the character is a small dashboard rather than a sentence: a tit
 
 The bar below is a pill of four tabs, each an icon above its label. The selected tab is *lighter* than the bar it sits in rather than tinted, as the design draws it, and the one it marks is the status tab — which is also the only operation that can never be unavailable. The mark travels as `aria-pressed`, which is both what the stylesheet keys on and what a screen reader needs. An unavailable operation is dimmed rather than removed, because the bar doubles as the explanation of the current state.
 
-The things a stylesheet can say and inline styles cannot — keyframes, `:hover`/`:focus-visible`/`[aria-pressed]`, `backdrop-filter`, and `prefers-reduced-motion` — live in one injected `<style>`; everything derived from runtime numbers stays inline. The glass surface is mixed from theme tokens with `color-mix`, so one rule frosts over a light page and a dark one; where `color-mix` is unsupported the declaration is dropped and the panel is plainer but working. An earlier version styled itself with invented token names — `--dsw-surface` and friends, none of which exist — and became a white box on a dark theme with no symptom anywhere; an assertion now fails on any `var(--…)` that is not a real token.
+**Structure is inline; the stylesheet is decoration only.** This project cannot observe whether an injected sheet is applied in the operator's browser, so anything the badge's *shape* depends on is an inline style — the one mechanism the geometry already trusts. A row that is a row only because a class said `display: flex` becomes three stacked blocks the day the sheet does not apply, which is precisely what happened to the panel's label/value alignment. What is left in the injected `<style>` is what inline styles genuinely cannot express: keyframes, `:hover`/`:focus-visible`/`[aria-pressed]`, `backdrop-filter` with its prefixed twin, and one `prefers-reduced-motion` block. A case mounts into a document that refuses `<style>` outright and asserts the panel is still a panel.
+
+The sheet also marks itself with `data-plugin`, because the loader tags every unclaimed `<style>` it finds with the id of whichever client plugin materializes next and removes a plugin's styles when that plugin unloads — an unmarked sheet is one unrelated plugin reload away from silently disappearing.
+
+The glass surface is mixed from theme tokens with `color-mix`, so one rule frosts over a light page and a dark one; where `color-mix` is unsupported the declaration is dropped and the panel is plainer but working. An earlier version styled itself with invented token names — `--dsw-surface` and friends, none of which exist — and became a white box on a dark theme with no symptom anywhere; an assertion now fails on any `var(--…)` that is not a real token.
 
 ### Why the browser asks the host
 
@@ -359,7 +363,7 @@ node test/manifest.test.mjs         # assembly: manifest ↔ patch ↔ module ag
 node test/readme.test.mjs           # README.md and README.zh.md stay structurally in step
 ```
 
-365 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
+366 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
 
 They also need no harness running, so they sidestep the one-harness-per-`$DSH_HOME` constraint entirely — `npm test` is the fast way to check the plugin without touching a live profile.
 
