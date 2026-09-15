@@ -665,13 +665,14 @@ await test('a resized character stays on screen and clear of its own furniture',
 
 process.stdout.write('\nthe look\n');
 
-await test('the bead, the panel row and the character all read from one accent', () => {
-  // Derived from the same pose the character takes, so the bead, the panel's tariff
-  // row and the art cannot describe three different instants.
-  const held = { engaged: true, heldCount: 2, releaseAtMs: Date.now() + 3_600_000 };
+await test('the bead carries the state, and the panel row carries the tariff', () => {
+  // Two axes, and the design draws both. The bead says what the *badge* is doing — blue
+  // while it holds, because that is the plugin working. The panel's mark says what the
+  // *tariff* is, where off-peak is green because cheap is the good state; reusing the
+  // bead's grey here would have made "cheap" and "nothing happening" look the same.
+  const held = { engaged: true, heldCount: 2, releaseAtMs: Date.now() + 3_600_000, phase: 'peak' };
   const { badge, document: doc } = mount({ state: held });
-  const shell = beadLayer(doc, 'shell').style.background;
-  assert.equal(shell, '#007aff', 'a hold is the plugin working, so it is branded rather than alarming');
+  assert.equal(beadLayer(doc, 'shell').style.background, '#007aff', 'a hold is the plugin working, so it is branded');
   assert.equal(beadLayer(doc, 'core').style.background, '#70c2ff');
   assert.match(beadLayer(doc, 'glow').style.width, /^\d+px$/u, 'the halo carries the intensity');
 
@@ -679,8 +680,29 @@ await test('the bead, the panel row and the character all read from one accent',
     .flatMap((child) => child.children ?? [])
     .find((child) => String(child.className ?? '') === 'pvb-row');
   assert.notEqual(firstRow, undefined, 'the panel must render rows');
-  const value = firstRow.children.find((child) => String(child.className ?? '') === 'pvb-row-value');
-  assert.equal(value.children.at(-1).style.color, shell, 'the tariff row is drawn in the same colour');
+  const value = firstRow.children.find((child) => String(child.className ?? '').includes('pvb-row-value'));
+  assert.equal(value.children.at(-1).style.color, 'var(--dsw-alias-brand-primary, #007aff)');
+  assert.equal(value.children[0].style.background, '#007aff', 'peak is the active tariff, so it is branded too');
+  badge.dispose();
+});
+
+await test('the bead and the panel mark answer different questions', () => {
+  // An off-peak override: the bead is red because the badge is spending money, and the
+  // tariff mark is green because the tariff is the cheap one. Two axes on screen at
+  // once, which is exactly the case that would collapse if they shared a colour.
+  const { badge, document: doc } = mount({
+    state: { engaged: false, heldCount: 0, overrideActive: true, overrideUntilMs: Date.now() + 60_000, phase: 'open' },
+  });
+  assert.equal(beadLayer(doc, 'shell').style.background, '#ff3b30', 'the costly state, on the bead');
+  const firstRow = bubbleOf(doc).children
+    .flatMap((child) => child.children ?? [])
+    .find((child) => String(child.className ?? '') === 'pvb-row');
+  assert.notEqual(firstRow, undefined, 'an override shows the panel');
+  assert.equal(
+    firstRow.children.find((child) => String(child.className ?? '').includes('pvb-row-value')).children[0].style.background,
+    '#34c759',
+    'and the cheap tariff, on the row',
+  );
   badge.dispose();
 });
 
@@ -771,18 +793,21 @@ await test('the bar offers four tabs, each an icon over its label', async () => 
   badge.dispose();
 });
 
-await test('exactly one tab reads as the current action', () => {
-  // The selected tab is the bounded release, and it is marked with `aria-pressed`:
-  // that is what the stylesheet keys on, and it is also what a screen reader needs.
+await test('exactly one tab reads as the selected one, and it is the one that always works', () => {
+  // The design marks one tab with a lighter pill and the brand colour, and it is the
+  // status tab — which is also the only operation that can never be unavailable, so the
+  // mark is always on something that works.
   const held = { engaged: true, heldCount: 1, releaseAtMs: Date.now() + 3_600_000, phase: 'peak' };
   const { badge, root, document: doc } = mount({ state: held });
   root.emit('pointerenter');
-  const pressed = toolbarOf(doc).children.filter((tab) => tab.attributes['aria-pressed'] === 'true');
+  const tabs = toolbarOf(doc).children;
+  const pressed = tabs.filter((tab) => tab.attributes['aria-pressed'] === 'true');
   assert.equal(pressed.length, 1);
-  assert.equal(pressed[0].children.find((child) => String(child.className ?? '') === 'pvb-tab-label').textContent, 'now');
+  assert.equal(pressed[0].children.find((child) => String(child.className ?? '') === 'pvb-tab-label').textContent, 'status');
   assert.match(pressed[0].style.color, /brand-primary/u, 'and it is the one drawn in the brand colour');
+  assert.equal(pressed[0].disabled, false, 'the selected tab is never a dead one');
 
-  const others = toolbarOf(doc).children.filter((tab) => tab.attributes['aria-pressed'] === 'false');
+  const others = tabs.filter((tab) => tab.attributes['aria-pressed'] === 'false');
   assert.equal(others.length, 3);
   for (const tab of others) assert.match(tab.style.color, /label-secondary/u);
   badge.dispose();

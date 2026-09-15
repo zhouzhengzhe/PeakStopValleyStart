@@ -166,14 +166,19 @@ test('the panel answers the six questions it is designed to answer', () => {
   );
 });
 
-test('the tariff row leads and carries the dot', () => {
-  // The tariff is the fact everything else follows from, so it is the one row the
-  // eye is given a mark for.
+test('the tariff row leads and carries the mark', () => {
+  // The tariff is the fact everything else follows from, so it is the one row the eye
+  // is given a mark for — and the mark is the *phase* colour, not the bead's. The
+  // design draws off-peak green here, because cheap is the good state, where the bead
+  // is grey because the badge itself is doing nothing. Two axes, two colours.
   const panel = panelFor(state({ phase: 'armed' }), NOW);
   assert.match(panel.rows[0].value, /峰前/u);
   assert.match(panel.rows[0].value, /pre-peak/u, 'both languages, because "peak" is the pricing page word');
-  assert.equal(panel.rows[0].dot, true);
-  assert.equal(panel.rows.filter((row) => row.dot).length, 1, 'exactly one row may carry the mark');
+  assert.equal(panel.rows[0].dotColour, '#ff9500');
+  assert.equal(panel.rows.filter((row) => row.dotColour !== null).length, 1, 'exactly one row may carry the mark');
+
+  const offPeak = panelFor(state(), NOW);
+  assert.equal(offPeak.rows[0].dotColour, '#34c759', 'off-peak is the cheap good state, so it is marked green');
 });
 
 test('the decision row reads as a decision, not as a boolean', () => {
