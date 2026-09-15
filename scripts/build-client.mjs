@@ -70,6 +70,12 @@ const result = await esbuild.build({
   globalName: '__peakValleyBrakeClient',
   platform: 'browser',
   target: ['es2020'],
+  // React must stay a reference, not a copy. The harness seeds its own React into
+  // the module table the factory's `require` reads, and the settings page is a slot
+  // occupant — the renderer invokes it as a component of *that* React. A second
+  // bundled copy would give the page two React instances and every hook would throw
+  // "invalid hook call", a failure this project cannot reproduce outside a browser.
+  external: ['react', 'react-dom', 'react/jsx-runtime', 'react-dom/client'],
   write: false,
   legalComments: 'none',
   logLevel: 'warning',

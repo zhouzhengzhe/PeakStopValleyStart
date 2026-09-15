@@ -57,13 +57,15 @@ await test('the client declaration names a platform the module system accepts', 
   assert.equal(manifest.dsh.client.platform, 'web', 'the desktop shell serves the web platform');
 });
 
-await test('the client declaration asks for no module ordering it does not need', () => {
+await test('the client declaration names the packages its settings page comes from', () => {
   // `dsh.client.inject` is a list of *package* ids to arrive before this bundle —
-  // module ordering, not cordis services, which are declared by the client
-  // module's own `inject` export. This bundle calls no `require`, so it has no
-  // ordering dependency, and naming service names here would be a category error
-  // that only shows up as a boot composition failure.
-  assert.equal(manifest.dsh.client.inject, undefined);
+  // module ordering, not cordis services, which the client module declares itself
+  // in its own `inject` export. The ordering matters here: the settings page
+  // registers into a slot the settings shell declares while it mounts.
+  assert.deepEqual([...manifest.dsh.client.inject].sort(), [
+    '@deepseek-ai/dsh-client-ui-settings',
+    '@deepseek-ai/dsh-client-ui-settings-general',
+  ]);
 });
 
 await test('the client export points at the built bundle, not the ESM source', () => {
@@ -227,6 +229,22 @@ await test('the client bundle being served is the one the source builds', async 
   await promisify(execFile)(process.execPath, [join(root, 'scripts', 'build-client.mjs')], { cwd: root });
   const after = await read(join(root, 'lib', 'client.bundle.js'), 'utf8');
   assert.equal(after, before, 'lib/client.bundle.js is out of date; run `node scripts/build-client.mjs`');
+});
+
+await test('the settings schema is a real dependency and survives a hand-edited value', async () => {
+  // Two failures in one place. The schema needs `schemastery` at load time, so a
+  // manifest missing it is a boot failure rather than a warning. And schemastery
+  // *throws* on an out-of-range value while the settings service resolves the whole
+  // namespace when it registers — so a `min`/`max` on these fields would let a
+  // hand-edited `settings.yaml` take the brake down with it, since the registration
+  // runs in the same apply. The ranges are enforced where the values are used.
+  assert.ok(manifest.dependencies?.schemastery, 'schemastery must be a runtime dependency');
+  const { badgeSettingsSchema } = await import('../lib/badge-settings-schema.js');
+  assert.equal(typeof badgeSettingsSchema, 'function');
+  assert.equal(typeof badgeSettingsSchema.toJSON, 'function', 'the settings service serializes the schema');
+  assert.doesNotThrow(() => badgeSettingsSchema({ badgeSize: 99999, hoverDelayMs: -1 }));
+  assert.equal(badgeSettingsSchema({ badgeSize: 99999 }).badgeSize, 99999, 'passed through; the renderer clamps');
+  assert.equal(badgeSettingsSchema({}).badgeVisible, true, 'a missing field must still resolve');
 });
 
 await test('the package name is a valid npm specifier the loader can resolve', () => {

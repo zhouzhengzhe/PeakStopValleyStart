@@ -76,6 +76,37 @@ function loadBundle(source) {
 
 const bundleSource = await readFile(bundlePath, 'utf8');
 
+/**
+ * The smallest React the module needs in order to load.
+ *
+ * Deliberately not a renderer: this suite checks the loader contract and the
+ * request path, and the one thing it must prove about React is that the bundle
+ * *asks for it* instead of carrying its own copy.
+ *
+ * @returns {object} a stand-in for `react`.
+ */
+function fakeReact() {
+  return {
+    createElement: () => ({}),
+    useState: (initial) => [typeof initial === 'function' ? initial() : initial, () => {}],
+    useEffect: () => undefined,
+  };
+}
+
+/**
+ * Materialize the bundle's exports with the host's module table stubbed.
+ *
+ * @returns {object} the module's exports.
+ */
+function loadModule() {
+  const required = [];
+  return loadBundle(bundleSource).factory((specifier) => {
+    required.push(specifier);
+    if (specifier === 'react') return fakeReact();
+    throw new Error(`this bundle must not require "${specifier}"`);
+  });
+}
+
 process.stdout.write('peak-valley-brake client bundle\n\n');
 
 await test('the bundle exists and carries the inlined art', () => {
@@ -90,28 +121,87 @@ await test('the bundle registers itself under this plugin id', () => {
 });
 
 await test('the factory exports what the harness looks for', () => {
-  const registration = loadBundle(bundleSource);
-  const exported = registration.factory(() => {
-    throw new Error('this bundle must not require a shared module');
-  });
+  const exported = loadModule();
   assert.equal(typeof exported.apply, 'function', 'the harness calls apply(ctx)');
-  assert.ok(Array.isArray(exported.inject), 'the harness reads inject to resolve services');
   assert.equal(exported.name, 'peak-valley-brake');
 });
 
-await test('the declared client services are ones this harness actually provides', () => {
-  // The client half provides `connection`, `locale`, `theme`, `chatFileMentions`,
-  // `sessionLogDownload` and the cordis runner's own pair — and no session or
-  // projection registry. A client plugin that declares a service nobody provides
-  // is parked until it appears, so it never activates and the badge silently never
-  // mounts. The state therefore travels over the host route, and this list is
-  // empty on purpose. `connection` is the only name that would even be legal.
-  const exported = loadBundle(bundleSource).factory(() => ({}));
-  assert.deepEqual([...exported.inject], []);
+await test('every declared service is one, and every one is optional', () => {
+  // Two properties matter and both were got wrong once. Each name must be a service
+  // this harness actually provides — `slots` is provided by the renderer's slot
+  // registry, `settingsScope` by the settings UI — and each must be declared
+  // nullish, because a client plugin whose injected service never arrives is parked
+  // until it does and never activates: the badge would silently never mount.
+  const exported = loadModule();
+  assert.equal(typeof exported.inject, 'object');
+  assert.deepEqual(Object.keys(exported.inject).sort(), ['settingsScope', 'slots']);
+  for (const [service, declaration] of Object.entries(exported.inject)) {
+    assert.equal(declaration, null, `${service} must be optional`);
+  }
+});
+
+await test('React is referenced from the host table, never bundled', () => {
+  // The settings page is a slot occupant, and the renderer invokes it as a
+  // component of the shell's own React. A second bundled copy gives the page two
+  // React instances and every hook throws "invalid hook call" — invisible to this
+  // project, because it only happens in a browser.
+  assert.match(bundleSource, /require\("react"\)/u, 'React must be required, not inlined');
+  for (const marker of ['ReactCurrentDispatcher', '__SECRET_INTERNALS', 'react.development.js']) {
+    assert.ok(!bundleSource.includes(marker), `the bundle must not contain a React runtime (${marker})`);
+  }
+});
+
+await test('the settings page registers into the slot the shell declares', () => {
+  const exported = loadModule();
+  const registrations = [];
+  let injectKey;
+  const ctx = {
+    slots: {
+      inject(key, callback) {
+        injectKey = key;
+        return callback();
+      },
+      register(options, component) {
+        registrations.push({ options, component });
+        return () => {};
+      },
+    },
+  };
+  assert.doesNotThrow(() => exported.registerSettingsSection(ctx, { scope: undefined }));
+  assert.equal(injectKey, 'settings.section');
+  assert.equal(registrations.length, 1);
+  assert.equal(registrations[0].options.name, 'settings.section');
+  assert.equal(registrations[0].options.id, 'peak-valley-brake', 'a shipped id would replace that section');
+  assert.equal(typeof registrations[0].component, 'function', 'a slot occupant must be a component');
+});
+
+await test('a composition with no slot registry costs the settings page only', () => {
+  // The badge and the settings page are independent: losing the settings surface
+  // must not throw into the page an operator is working in.
+  const exported = loadModule();
+  for (const ctx of [{}, { slots: {} }, { get: () => undefined }]) {
+    assert.doesNotThrow(() => exported.registerSettingsSection(ctx, { scope: undefined }));
+    assert.equal(exported.registerSettingsSection(ctx, { scope: undefined }), undefined);
+  }
+});
+
+await test('a slot registry that throws does not break the plugin', () => {
+  const exported = loadModule();
+  const ctx = {
+    slots: {
+      inject() {
+        throw new Error('the registry is unhappy');
+      },
+      register() {
+        throw new Error('the registry is unhappy');
+      },
+    },
+  };
+  assert.doesNotThrow(() => exported.registerSettingsSection(ctx, { scope: undefined }));
 });
 
 await test('the controller takes a reading from the host and remembers the session', async () => {
-  const exported = loadBundle(bundleSource).factory(() => ({}));
+  const exported = loadModule();
   const sent = [];
   const controller = exported.createController({
     fetchImpl: async (url, init) => {
@@ -138,7 +228,7 @@ await test('the controller takes a reading from the host and remembers the sessi
 });
 
 await test('a later request sends back the session the host named', async () => {
-  const exported = loadBundle(bundleSource).factory(() => ({}));
+  const exported = loadModule();
   const sent = [];
   const controller = exported.createController({
     fetchImpl: async (url, init) => {
@@ -152,7 +242,7 @@ await test('a later request sends back the session the host named', async () => 
 });
 
 await test('a failing request costs a stale pose, never an exception', async () => {
-  const exported = loadBundle(bundleSource).factory(() => ({}));
+  const exported = loadModule();
   const controller = exported.createController({
     fetchImpl: async () => {
       throw new Error('the page went offline');
@@ -163,7 +253,7 @@ await test('a failing request costs a stale pose, never an exception', async () 
 });
 
 await test('a response that is not an object is ignored rather than trusted', async () => {
-  const exported = loadBundle(bundleSource).factory(() => ({}));
+  const exported = loadModule();
   for (const value of [null, 'text', 42]) {
     const controller = exported.createController({ fetchImpl: async () => ({ json: async () => value }) });
     assert.equal(await controller.request('poll'), undefined);
@@ -174,7 +264,7 @@ await test('a response that is not an object is ignored rather than trusted', as
 await test('apply survives a context with no services at all', () => {
   // The client half runs somewhere this project cannot inspect, so a missing
   // service must degrade to a quieter badge rather than an exception in the page.
-  const exported = loadBundle(bundleSource).factory(() => ({}));
+  const exported = loadModule();
   const ctx = {
     get(key) {
       throw new Error(`no service ${key}`);
@@ -184,7 +274,7 @@ await test('apply survives a context with no services at all', () => {
 });
 
 await test('apply does not mount without a document', () => {
-  const exported = loadBundle(bundleSource).factory(() => ({}));
+  const exported = loadModule();
   assert.doesNotThrow(() => exported.apply({}));
 });
 

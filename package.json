@@ -32,6 +32,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "schemastery": "3.18.0",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
@@ -42,7 +43,11 @@
       "patch": "./cordis.patch.yml"
     },
     "client": {
-      "platform": "web"
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-settings-general"
+      ]
     }
   },
   "keywords": [

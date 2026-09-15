@@ -272,6 +272,14 @@ So the state travels over `POST /api/peak-valley-brake.action`, which the host c
 
 The route is claimed under `/api`, which this harness gives to exactly one owner: that owner authenticates the browser and validates `Host`/`Origin` before dispatching to registered exact paths. A badge route registered anywhere else would stand outside that fence, and an unclaimed path under `/api` returns 404 rather than falling through to another owner. The action vocabulary is closed — `poll`, `status`, `now`, `window`, `cancel` — so a malformed or hostile request cannot reach the command handler with arbitrary input.
 
+### The settings page
+
+Settings → 峰谷刹车 holds three preferences: whether the character is shown, how tall it is, and how long the toolbar lingers after the pointer leaves. They live in the harness's own settings plane — `$DSH_HOME/settings.yaml`, namespace `peak-valley-brake` — which is what gives each field a restore-default and lets the choices follow you to another machine.
+
+The page occupies the `settings.section` slot, so it sits in the nav beside the shipped sections and mounts only while it is selected. That slot is declared by the settings shell while *it* mounts rather than by a package, so it has to be reached through `slots.inject`; a bare `register` would find no such slot. Occupants must be React components, so the page is built with the host's own React — the build marks React external, because a second bundled copy would give the page two React instances and every hook would throw.
+
+Two things are deliberately optional rather than required. `slots` and `settingsScope` are declared nullish, and cordis skips a nullish inject entry entirely (`if (isNullable(config)) continue`), so a deployment with no settings surface still mounts the badge instead of parking the plugin forever. And the schema declares no `min`/`max`: schemastery *rejects* an out-of-range value while the settings service resolves the whole namespace at registration, so a hand-edited `settings.yaml` could otherwise take the brake down over a cosmetic preference. The ranges are enforced where the values are used instead.
+
 ## Writing a plugin that loads in this harness
 
 Three contracts cost real debugging time to discover, and all three fail with messages that do not name the cause. They are recorded here because any plugin in this ecosystem hits them. Each is asserted in `test/manifest.test.mjs`, so a future edit cannot silently reintroduce them.
@@ -341,7 +349,7 @@ node test/manifest.test.mjs         # assembly: manifest ↔ patch ↔ module ag
 node test/readme.test.mjs           # README.md and README.zh.md stay structurally in step
 ```
 
-345 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
+350 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
 
 They also need no harness running, so they sidestep the one-harness-per-`$DSH_HOME` constraint entirely — `npm test` is the fast way to check the plugin without touching a live profile.
 
