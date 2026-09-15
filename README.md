@@ -161,6 +161,17 @@ Three properties are load-bearing:
 
 Only relative paths enter the ledger, so a shared ledger cannot leak a directory layout.
 
+### What drift detection cannot see
+
+Because the signal is `git status`, it inherits that command's blind spots. Knowing them matters more than the feature's happy path:
+
+- **A `.gitignore`d file is invisible.** Creating or editing one changes nothing in `git status`, so the guard reports `unchanged`. This is consistent — an ignored file is by definition one git does not track — but it is a real gap if a build step writes something you care about to an ignored path.
+- **A file created *and* deleted during the hold is invisible**, because the net status is identical.
+- **Changes outside the repository are invisible.** The check is scoped to the session's working directory; a sibling project edited in the same window is not reported.
+- **A repository this session never had** reports `unverified` forever, and every release carries a re-read notice. That is honest but noisy, which is the argument for running the plugin's own repository as a repository — as this one now is.
+
+In a real repository the check was verified end to end: creating one untracked file produced `drifted` with that path listed, while creating an ignored `.tmp` file produced `unchanged`.
+
 ### Seeing what the guard is doing
 
 The host's own log is not visible in every launch mode, so the guard can report to the terminal that started the harness:
