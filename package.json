@@ -19,7 +19,9 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node test/time-window.test.mjs && node test/locale.test.mjs && node test/workspace-drift.test.mjs && node test/hold-ledger.test.mjs && node test/brake.test.mjs && node test/manifest.test.mjs && node test/readme.test.mjs"
+    "test": "node test/time-window.test.mjs && node test/locale.test.mjs && node test/workspace-drift.test.mjs && node test/hold-ledger.test.mjs && node test/brake.test.mjs && node test/manifest.test.mjs && node test/readme.test.mjs",
+    "test:quiet": "npm test --silent",
+    "hooks:setup": "sh scripts/setup-hooks.sh"
   },
   "engines": {
     "node": ">=20"

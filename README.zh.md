@@ -332,6 +332,39 @@ dsh-peak-valley-brake
 - 回执以面向模型的上下文注入（`source.form: 'notice'`），因此它在对话记录里表现为一条折叠通知，而不是一条聊天消息。它的渲染已对宿主消息类型核实、并与宿主内某插件已在用的形状比对过，但尚未在真实对话中被观察到。
 - 没有客户端状态徽章。`/peak-valley status` 与日志行是目前读取刹车状态的两种途径。
 
+## 开发
+
+测试套件不需要 harness、不需要网络、不消耗任何 API 额度——它是不碰活动 profile 就检查改动的最快方式。`npm test` 跑全部七个文件；每个文件也能单独运行，迭代时用后者更顺手。
+
+### push 前闸门
+
+每次 push 前会自动跑 `npm test`，失败就**拒绝推送**：
+
+```
+pre-push: running the test suite (SKIP_TESTS=1 to bypass)...
+pre-push: suite passed
+```
+
+它跑**全部**套件，而不是去猜这次改动影响哪些测试。七个互相独立的文件跑完不到一分钟，而一个"自己判断哪些测试重要"的闸门就是有洞的闸门。跑全部的成本每次 push 只付一次；漏掉那一个关键测试的成本由拉取的人承担。
+
+提交进仓库的钩子需要每个 clone 做一次设置，因为 `core.hooksPath` 是本地 git 配置，clone 不会带过来：
+
+```sh
+npm run hooks:setup
+```
+
+它把 `core.hooksPath` 指向已提交的 `.githooks/` 目录，并给钩子加上可执行位。不做这一步该目录就是**惰性的**——git 仍然只看 `.git/hooks`，那里没有任何提交内容，因此也传不到别人手上。
+
+真遇到紧急情况需要绕过：
+
+```sh
+SKIP_TESTS=1 git push
+```
+
+它是刻意写成显式变量的，而不是挂到 `git push --no-verify` 上——后者会连带绕过你以后可能想保留的其他钩子。
+
+`.githooks/**` 在 `.gitattributes` 里被钉为 LF。CRLF 的 shebang 会让 Git Bash 去找一个名为 `/bin/sh\r` 的解释器，钩子以 `bad interpreter` 失败——那种报错看起来像仓库坏了，而不像行尾问题。
+
 ## 许可证
 
 MIT

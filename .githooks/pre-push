@@ -1,0 +1,51 @@
+#!/bin/sh
+#
+# Pre-push gate: run the full suite before anything leaves this machine.
+#
+# Why the whole suite and not "just the tests for what changed": the suite is
+# seven independent files with no shared state, it takes well under a minute, and
+# a gate that guesses which tests matter is a gate with a hole in it. The cost of
+# running everything is paid once per push; the cost of skipping the one test
+# that mattered is paid by whoever pulls.
+#
+# Override, deliberately awkward so it cannot become a habit:
+#
+#   SKIP_TESTS=1 git push
+#
+# It is not wired to `git push --no-verify`, which bypasses every hook including
+# ones you may want later.
+
+set -e
+
+if [ "${SKIP_TESTS}" = "1" ]; then
+  echo "pre-push: SKIP_TESTS=1 set, skipping the test suite" >&2
+  exit 0
+fi
+
+# Run from the repository root, not from whatever directory the push started in.
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+
+if ! command -v npm >/dev/null 2>&1; then
+  echo "pre-push: npm was not found on PATH, so the suite cannot run." >&2
+  echo "pre-push: install Node.js >= 20, or push with SKIP_TESTS=1 to bypass." >&2
+  exit 1
+fi
+
+echo "pre-push: running the test suite (SKIP_TESTS=1 to bypass)..." >&2
+
+if npm test --silent >/dev/null 2>&1; then
+  echo "pre-push: suite passed" >&2
+  exit 0
+fi
+
+# Re-run showing output: the developer needs to see what failed, not just that
+# something did. The second run is cheap next to the confusion of a silent wall.
+echo "" >&2
+echo "pre-push: the test suite FAILED. Full output follows." >&2
+echo "" >&2
+npm test || true
+
+echo "" >&2
+echo "pre-push: push refused. Fix the failure, or push with SKIP_TESTS=1 to bypass." >&2
+exit 1

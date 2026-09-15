@@ -333,6 +333,39 @@ dsh-peak-valley-brake
 - The hold receipt is injected as model-facing context (`source.form: 'notice'`), so it appears in the transcript as a collapsed notice rather than as a chat message. Its rendering has been verified against the harness message types and against the shape an in-box plugin already uses, but not yet observed in a live conversation.
 - There is no client-side status badge. `/peak-valley status` is the current way to read the brake's state, and the log line is the other.
 
+## Development
+
+The suite needs no harness, no network, and no API credit — it is the fastest way to check a change without touching a live profile. `npm test` runs all seven files; each also runs on its own, which is what you want while iterating.
+
+### The pre-push gate
+
+`npm test` runs automatically before every push, and a failure refuses the push:
+
+```
+pre-push: running the test suite (SKIP_TESTS=1 to bypass)...
+pre-push: suite passed
+```
+
+It runs the **whole** suite rather than guessing which tests a change affects. Seven independent files take under a minute, and a gate that decides which tests matter is a gate with a hole in it. The cost of running everything is paid once per push; the cost of skipping the one test that mattered is paid by whoever pulls.
+
+Committing a hook requires one setup step per clone, because `core.hooksPath` is local git configuration and a clone does not carry it:
+
+```sh
+npm run hooks:setup
+```
+
+That points `core.hooksPath` at the committed `.githooks/` directory and marks the hooks executable. Without it the directory is inert — git keeps looking in `.git/hooks`, where nothing is committed and therefore nothing reaches anyone else.
+
+To bypass in a genuine emergency:
+
+```sh
+SKIP_TESTS=1 git push
+```
+
+It is deliberately spelled out rather than wired to `git push --no-verify`, which would also bypass hooks you may want later.
+
+`.githooks/**` is pinned to LF in `.gitattributes`. A CRLF shebang makes Git Bash look for an interpreter named `/bin/sh\r`, and the hook dies with `bad interpreter` — a failure that looks like a broken repository rather than a line-ending problem.
+
 ## License
 
 MIT

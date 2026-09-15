@@ -11,6 +11,11 @@
 # Shell scripts must keep LF even on Windows, or they fail to execute.
 *.sh text eol=lf
 
+# Git hooks are shell scripts. A CRLF shebang makes Git Bash look for an
+# interpreter literally named `/bin/sh\r` and the hook dies with
+# "bad interpreter" — so this directory must never be checked out as CRLF.
+.githooks/** text eol=lf
+
 # Windows-only scripts keep CRLF.
 *.cmd text eol=crlf
 *.bat text eol=crlf
