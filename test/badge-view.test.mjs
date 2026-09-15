@@ -15,14 +15,17 @@
 import assert from 'node:assert/strict';
 
 import {
+  BADGE_ACCENTS,
   BADGE_STATES,
   RELEASED_LINGER_MS,
+  accentFor,
   badgeStateFor,
-  bubbleContentFor,
   bubbleOpensLeft,
   clampPosition,
   defaultPosition,
   formatClock,
+  formatStamp,
+  panelFor,
   shouldShowBubble,
   toolbarFor,
 } from '../lib/badge-view.js';
@@ -141,51 +144,119 @@ test('a pinned bubble shows even when idle', () => {
 });
 
 test('a live override is shown, because it is the one thing spending money at peak', () => {
-  // `bubbleContentFor` writes text for an override, so a visibility rule that
-  // suppressed it while idle would leave the badge silent about the most
-  // expensive state it knows — the two functions have to agree.
+  // `panelFor` describes an override, so a visibility rule that suppressed it while
+  // idle would leave the badge silent about the most expensive state it knows — the
+  // two functions have to agree.
   const overridden = state({ overrideActive: true, overrideUntilMs: NOW });
   assert.equal(shouldShowBubble(overridden), true);
-  assert.notEqual(bubbleContentFor(overridden, NOW), undefined);
+  assert.notEqual(panelFor(overridden, NOW), undefined);
 });
 
-test('the held bubble reports the count and the release time', () => {
-  const content = bubbleContentFor(state({ engaged: true, heldCount: 2, releaseAtMs: NOW }), NOW, {
-    held: '已拦截',
-    count: '条',
-    autoRelease: '自动放行',
-  });
-  assert.match(content.title, /已拦截 2 条/u);
-  assert.match(content.detail, /自动放行/u);
+process.stdout.write('\nthe panel\n');
+
+test('the panel answers the six questions it is designed to answer', () => {
+  const panel = panelFor(
+    state({ phase: 'peak', engaged: true, heldCount: 2, reason: 'peak', releaseAtMs: NOW, nextTransitionMs: NOW, nextTransitionEdge: 'release' }),
+    NOW,
+  );
+  assert.equal(panel.rows.length, 6);
+  assert.deepEqual(
+    panel.rows.map((row) => row.label),
+    ['当前档位', '调度决策', '下次切换', '放行时刻', '滞留消息', '手动覆盖'],
+  );
 });
 
-test('the armed bubble says the peak is coming', () => {
-  const content = bubbleContentFor(state({ phase: 'armed', releaseAtMs: NOW }), NOW, { armed: '即将进入峰时' });
-  assert.match(content.title, /即将进入峰时/u);
+test('the tariff row leads and carries the dot', () => {
+  // The tariff is the fact everything else follows from, so it is the one row the
+  // eye is given a mark for.
+  const panel = panelFor(state({ phase: 'armed' }), NOW);
+  assert.match(panel.rows[0].value, /峰前/u);
+  assert.match(panel.rows[0].value, /pre-peak/u, 'both languages, because "peak" is the pricing page word');
+  assert.equal(panel.rows[0].dot, true);
+  assert.equal(panel.rows.filter((row) => row.dot).length, 1, 'exactly one row may carry the mark');
 });
 
-test('a live override is surfaced even when nothing is held', () => {
-  const content = bubbleContentFor(state({ overrideActive: true, overrideUntilMs: NOW }), NOW, {
-    override: '已按峰价放行',
-  });
-  assert.ok(content !== undefined, 'an override spends money and must be visible');
-  assert.match(content.title, /已按峰价放行/u);
+test('the decision row reads as a decision, not as a boolean', () => {
+  const held = panelFor(state({ engaged: true, heldCount: 1, reason: 'peak' }), NOW);
+  assert.match(held.rows[1].value, /拦截/u);
+  assert.match(held.rows[1].value, /峰时计费/u);
+
+  const open = panelFor(state(), NOW);
+  assert.match(open.rows[1].value, /放行/u);
+  assert.equal(open.rows[1].tone, 'normal', 'an open gate is not an accent worth drawing');
 });
 
-test('an ordinary idle state has nothing to say', () => {
-  assert.equal(bubbleContentFor(state(), NOW), undefined);
-  assert.equal(bubbleContentFor(undefined, NOW), undefined);
+test('an override is the only row that gets the alarming tone', () => {
+  const panel = panelFor(state({ overrideActive: true, overrideUntilMs: NOW }), NOW);
+  const override = panel.rows.find((row) => row.label === '手动覆盖');
+  assert.equal(override.tone, 'danger');
+  assert.match(override.value, /2026|20\d\d/u, 'and it says until when');
+  const quiet = panelFor(state(), NOW).rows.find((row) => row.label === '手动覆盖');
+  assert.equal(quiet.tone, 'muted');
+  assert.equal(quiet.value, '无');
 });
 
-test('a missing release instant still says it will be released, without a clock', () => {
-  // The published state always carries a release edge while held, so this is the
-  // defensive path: the bubble must degrade to the words rather than render an
-  // empty or non-finite time.
-  const content = bubbleContentFor(state({ engaged: true, heldCount: 1, releaseAtMs: null }), NOW, {
-    autoRelease: '自动放行',
-  });
-  assert.equal(content.detail, '自动放行');
-  assert.ok(!content.detail.includes('NaN'), 'a clock must never render as NaN');
+test('a missing instant degrades to words rather than to a broken date', () => {
+  // The host always sends these while they apply, so this is the defensive path: a
+  // panel must never render "NaN" or "undefined" where a time belongs.
+  const panel = panelFor(state({ engaged: true, heldCount: 1, releaseAtMs: null, nextTransitionMs: null }), NOW);
+  const values = panel.rows.map((row) => row.value).join(' ');
+  assert.ok(!values.includes('NaN'), 'a stamp must never render as NaN');
+  assert.ok(!values.includes('undefined'), 'nor as undefined');
+  assert.ok(panel.rows.some((row) => row.value === '无'), 'an absent value says so');
+});
+
+test('the next switch names the edge it is heading for', () => {
+  const panel = panelFor(state({ nextTransitionMs: NOW, nextTransitionEdge: 'arm' }), NOW);
+  assert.match(panel.rows[2].value, /峰前/u);
+  assert.match(panel.rows[2].value, /\d{4}-\d{2}-\d{2} \d{2}:\d{2}/u, 'a stamp an operator can compare against a clock');
+});
+
+test('an ordinary idle state still produces a panel', () => {
+  // "Nothing is wrong" is worth being able to read. The caller decides whether to
+  // show it; this function's job is to describe, not to judge.
+  const panel = panelFor(state(), NOW);
+  assert.notEqual(panel, undefined);
+  assert.equal(panelFor(undefined, NOW), undefined, 'but there is nothing to say about no state at all');
+});
+
+test('stamps are local wall time and survive a non-finite instant', () => {
+  assert.match(formatStamp(NOW), /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/u);
+  assert.equal(formatStamp(Number.NaN), '');
+  assert.equal(formatStamp(undefined), '');
+});
+
+process.stdout.write('\nthe status bead\n');
+
+test('each state gets its own bead, and the costly one glows hardest', () => {
+  // The design's whole idea: the colour says which state, the halo's radius says how
+  // much it matters.
+  const idle = accentFor(state(), NOW);
+  const armed = accentFor(state({ phase: 'armed' }), NOW);
+  const held = accentFor(state({ engaged: true, heldCount: 1 }), NOW);
+  const override = accentFor(state({ overrideActive: true }), NOW);
+
+  for (const bead of [idle, armed, held, override]) {
+    assert.match(bead.shell, /^#[0-9a-f]{6}$/u, 'a bead colour must be a concrete colour');
+    assert.ok(bead.glow > 0);
+  }
+  assert.equal(new Set([idle.shell, armed.shell, held.shell, override.shell]).size, 4, 'four states, four colours');
+  assert.ok(override.glow > held.glow, 'the one state that spends money is the one that shouts');
+  assert.ok(idle.glow < armed.glow, 'and the quiet state stays quiet');
+  assert.equal(BADGE_ACCENTS.override.shell, '#ff3b30');
+});
+
+test('a fresh release borrows the delivered bead and then gives it back', () => {
+  const released = state({ lastReleaseAtMs: NOW, lastReleaseReason: 'schedule' });
+  assert.equal(accentFor(released, NOW).shell, BADGE_ACCENTS.released.shell);
+  assert.equal(accentFor(released, NOW + RELEASED_LINGER_MS + 1).shell, BADGE_ACCENTS.idle.shell);
+});
+
+test('an override outranks every other bead', () => {
+  // Even while work is held, a live override is what the operator needs to see: it
+  // is the only state that is deliberately spending money.
+  const both = state({ engaged: true, heldCount: 3, overrideActive: true, overrideUntilMs: NOW });
+  assert.equal(accentFor(both, NOW).shell, BADGE_ACCENTS.override.shell);
 });
 
 process.stdout.write('\npositioning\n');

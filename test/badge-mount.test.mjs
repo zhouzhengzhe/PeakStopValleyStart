@@ -256,11 +256,16 @@ function toolbarOf(document_) {
   return document_.body.children.find((child) => String(child.className ?? '').includes('pvb-toolbar'));
 }
 
-/** The state dot inside the character's element. */
-function dotOf(document_) {
+/** The status bead inside the character's element. */
+function beadOf(document_) {
   return document_.body.children
     .find((child) => child.id === 'peak-valley-brake-badge')
-    ?.children.find((child) => String(child.className ?? '').includes('pvb-dot'));
+    ?.children.find((child) => String(child.className ?? '').includes('pvb-bead'));
+}
+
+/** One layer of the bead, by its class. */
+function beadLayer(document_, layer) {
+  return beadOf(document_)?.children.find((child) => String(child.className ?? '') === `pvb-bead-${layer}`);
 }
 
 /** The character's image element. */
@@ -660,23 +665,47 @@ await test('a resized character stays on screen and clear of its own furniture',
 
 process.stdout.write('\nthe look\n');
 
-await test('one accent colour reaches the dot, the panel edge and nothing else', () => {
-  // Derived from the same pose the character takes, so the dot, the panel and the art
-  // cannot describe three different instants.
+await test('the bead, the panel row and the character all read from one accent', () => {
+  // Derived from the same pose the character takes, so the bead, the panel's tariff
+  // row and the art cannot describe three different instants.
   const held = { engaged: true, heldCount: 2, releaseAtMs: Date.now() + 3_600_000 };
   const { badge, document: doc } = mount({ state: held });
-  const accent = dotOf(doc).style.background;
-  assert.match(accent, /--dsw-alias-/u, 'the accent must come from the theme, not a literal');
-  assert.equal(bubbleOf(doc).style.borderLeftColor, accent, 'the panel edge must agree with the dot');
+  const shell = beadLayer(doc, 'shell').style.background;
+  assert.equal(shell, '#007aff', 'a hold is the plugin working, so it is branded rather than alarming');
+  assert.equal(beadLayer(doc, 'core').style.background, '#70c2ff');
+  assert.match(beadLayer(doc, 'glow').style.width, /^\d+px$/u, 'the halo carries the intensity');
+
+  const firstRow = bubbleOf(doc).children
+    .flatMap((child) => child.children ?? [])
+    .find((child) => String(child.className ?? '') === 'pvb-row');
+  assert.notEqual(firstRow, undefined, 'the panel must render rows');
+  const value = firstRow.children.find((child) => String(child.className ?? '') === 'pvb-row-value');
+  assert.equal(value.children.at(-1).style.color, shell, 'the tariff row is drawn in the same colour');
   badge.dispose();
+});
+
+await test('the halo is what carries intensity', () => {
+  const quiet = mount({ state: { engaged: false, heldCount: 0, overrideActive: false } });
+  const busy = mount({ state: { engaged: true, heldCount: 2, releaseAtMs: Date.now() + 3_600_000 } });
+  const width = (mounted) => Number.parseFloat(beadLayer(mounted.document, 'glow').style.width);
+  assert.ok(width(busy) > width(quiet), 'a state worth acting on must be more visible than an idle one');
+  quiet.badge.dispose();
+  busy.badge.dispose();
 });
 
 await test('a live override gets the one alarming colour', () => {
   // Everything else is either quiet or the plugin working as intended; deliberately
-  // spending money at peak is the only state that earns a warning colour.
-  const { badge, document: doc } = mount({ state: { engaged: false, heldCount: 0, overrideActive: true, overrideUntilMs: Date.now() + 60_000 } });
-  assert.match(dotOf(doc).style.background, /state-error/u);
-  badge.dispose();
+  // spending money at peak is the only state that earns the warning colour.
+  const calm = mount({ state: { engaged: false, heldCount: 0, overrideActive: false } });
+  const loud = mount({ state: { engaged: false, heldCount: 0, overrideActive: true, overrideUntilMs: Date.now() + 60_000 } });
+  assert.equal(beadLayer(loud.document, 'shell').style.background, '#ff3b30');
+  assert.ok(
+    Number.parseFloat(beadLayer(loud.document, 'glow').style.width) >
+      Number.parseFloat(beadLayer(calm.document, 'glow').style.width),
+    'and it glows hardest of all',
+  );
+  calm.badge.dispose();
+  loud.badge.dispose();
 });
 
 await test('the stylesheet is injected once and outlives any one mount', () => {
@@ -713,42 +742,66 @@ await test('the stylesheet switches its motion off on request', async () => {
   assert.match(source, /@keyframes pvb-pop/u);
 });
 
-await test('the toolbar gives the actions different weight', () => {
-  // Four identical buttons in a row read as a form. Reading the state is quiet, the
-  // bounded release is the solid one, and the two that spend money or undo a
-  // decision are outlines.
+await test('the bar offers four tabs, each an icon over its label', async () => {
+  // The design's tab: an 18px glyph above a 10px label, in a pill. The icon is a mask
+  // so that one SVG serves both the selected and the unselected state, taking its
+  // colour from the tab's own text colour.
   const held = { engaged: true, heldCount: 1, releaseAtMs: Date.now() + 3_600_000, phase: 'peak' };
   const { badge, root, document: doc } = mount({ state: held });
   root.emit('pointerenter');
-  const buttons = toolbarOf(doc).children;
-  assert.equal(buttons.length, 4);
+  const tabs = toolbarOf(doc).children;
+  assert.equal(tabs.length, 4);
 
-  const solid = buttons.filter((button) => button.style.background.includes('--dsw-alias-brand-primary'));
-  assert.equal(solid.length, 1, 'exactly one action should read as the primary one');
-  assert.equal(solid[0].textContent, 'now', 'and it should be the bounded release, not the open-ended one');
-
-  const outlined = buttons.filter((button) => button.style.borderColor !== undefined && button.style.borderColor !== 'transparent');
-  assert.ok(outlined.length >= 1, 'the open-ended release is offered, but as an outline');
-  assert.ok(
-    buttons.every((button) => button.className.includes('pvb-btn')),
-    'every button needs the class its hover and focus rules hang off',
+  for (const tab of tabs) {
+    assert.ok(tab.className.includes('pvb-tab'), 'every tab needs the class its states hang off');
+    const icon = tab.children.find((child) => String(child.className ?? '') === 'pvb-tab-icon');
+    const label = tab.children.find((child) => String(child.className ?? '') === 'pvb-tab-label');
+    assert.notEqual(icon, undefined, 'each tab has a glyph');
+    assert.notEqual(label, undefined, 'each tab has a label');
+    assert.match(icon.style.maskImage, /^url\("data:image\/svg\+xml,/u, 'the glyph is a mask, so it takes the colour');
+  }
+  // The colour itself is `currentColor` in the stylesheet, so one glyph serves the
+  // selected and the unselected tab.
+  const source = await readFile(new URL('../lib/badge-mount.js', import.meta.url), 'utf8');
+  assert.match(source, /\.pvb-tab-icon\s*\{[^}]*background-color:\s*currentColor/u);
+  assert.deepEqual(
+    tabs.map((tab) => tab.children.find((child) => String(child.className ?? '') === 'pvb-tab-label').textContent),
+    ['status', 'now', 'window', 'cancel'],
   );
   badge.dispose();
 });
 
+await test('exactly one tab reads as the current action', () => {
+  // The selected tab is the bounded release, and it is marked with `aria-pressed`:
+  // that is what the stylesheet keys on, and it is also what a screen reader needs.
+  const held = { engaged: true, heldCount: 1, releaseAtMs: Date.now() + 3_600_000, phase: 'peak' };
+  const { badge, root, document: doc } = mount({ state: held });
+  root.emit('pointerenter');
+  const pressed = toolbarOf(doc).children.filter((tab) => tab.attributes['aria-pressed'] === 'true');
+  assert.equal(pressed.length, 1);
+  assert.equal(pressed[0].children.find((child) => String(child.className ?? '') === 'pvb-tab-label').textContent, 'now');
+  assert.match(pressed[0].style.color, /brand-primary/u, 'and it is the one drawn in the brand colour');
+
+  const others = toolbarOf(doc).children.filter((tab) => tab.attributes['aria-pressed'] === 'false');
+  assert.equal(others.length, 3);
+  for (const tab of others) assert.match(tab.style.color, /label-secondary/u);
+  badge.dispose();
+});
+
 await test('an unavailable action stays visible and explains itself', () => {
-  // The toolbar doubles as the explanation of the current state, so an operation that
+  // The bar doubles as the explanation of the current state, so an operation that
   // does not apply is dimmed rather than removed — removing it would remove the
   // explanation, and its tooltip with it.
   const { badge, root, document: doc } = mount({ state: { engaged: false, heldCount: 0, overrideActive: false } });
   root.emit('pointerenter');
-  const buttons = toolbarOf(doc).children;
-  assert.equal(buttons.length, 4, 'all four operations keep their place');
-  const disabled = buttons.filter((button) => button.disabled);
+  const tabs = toolbarOf(doc).children;
+  assert.equal(tabs.length, 4, 'all four operations keep their place');
+  const disabled = tabs.filter((tab) => tab.disabled);
   assert.equal(disabled.length, 3);
-  for (const button of disabled) {
-    assert.ok(button.title !== '', `${button.textContent} must say why it is unavailable`);
-    assert.equal(Number.parseFloat(button.style.opacity), 0.5);
+  for (const tab of disabled) {
+    const label = tab.children.find((child) => String(child.className ?? '') === 'pvb-tab-label').textContent;
+    assert.ok(tab.title !== '', `${label} must say why it is unavailable`);
+    assert.equal(tab.attributes['aria-pressed'], 'false', 'and none of them may claim to be the current action');
   }
   badge.dispose();
 });

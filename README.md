@@ -262,9 +262,13 @@ Hover the character and the toolbar appears: status, release once, release until
 
 A live override is shown even when nothing is held. It is the one state that spends money at peak deliberately, so the badge refuses to be quiet about it.
 
-The character breathes, casts a ground shadow, and carries a coloured dot for its state; the panel that explains a hold is edged in the same colour. One accent is derived from the pose decision, so the dot, the edge and the art cannot describe three different instants, and the dot is the state at a glance for when the bubble has been dismissed and the toolbar is hidden. The toolbar gives its operations different weights rather than four identical buttons: reading the state is quiet, releasing once is the solid one, and the two that either spend money until the valley or reverse a decision are outlines. An unavailable operation is dimmed rather than removed, because the toolbar doubles as the explanation of the current state.
+The character breathes and casts a ground shadow, and carries a glass bead — a halo, a translucent shell, a bright core and a pinprick of glare — whose **halo radius is the state's intensity**. Quiet states cost no attention, and the one state that actually spends money is the only one that shouts. The bead's colours are system status colours rather than theme tokens, deliberately: a status colour that shifted with the theme would stop being a signal. Everything else takes its surface from the theme.
 
-The three things a stylesheet can say and inline styles cannot — keyframes, `:hover`/`:focus-visible`, and `prefers-reduced-motion` — live in one injected `<style>`; everything derived from runtime numbers stays inline. Colours are only ever theme tokens: a misspelled custom property resolves to nothing and its literal fallback wins silently, which is how the badge spent its first version as a white box on a dark theme.
+The panel above the character is a small dashboard rather than a sentence: a titled header, a hairline, then six rows — the tariff, the dispatch decision, the next schedule change, the release instant, how much is held, and whether an override is live. Each is answered from the published state, which is why the host publishes the next transition at all: the browser has no window table and no clock the host would agree with. The bead, the panel's tariff row and the art all derive from one pose decision, so they cannot describe three different instants.
+
+The bar below is a pill of four tabs, each an icon above its label, with the bounded release marked as the current action through `aria-pressed` — which is both what the stylesheet keys on and what a screen reader needs. An unavailable operation is dimmed rather than removed, because the bar doubles as the explanation of the current state.
+
+The things a stylesheet can say and inline styles cannot — keyframes, `:hover`/`:focus-visible`/`[aria-pressed]`, `backdrop-filter`, and `prefers-reduced-motion` — live in one injected `<style>`; everything derived from runtime numbers stays inline. The glass surface is mixed from theme tokens with `color-mix`, so one rule frosts over a light page and a dark one; where `color-mix` is unsupported the declaration is dropped and the panel is plainer but working. An earlier version styled itself with invented token names — `--dsw-surface` and friends, none of which exist — and became a white box on a dark theme with no symptom anywhere; an assertion now fails on any `var(--…)` that is not a real token.
 
 ### Why the browser asks the host
 
@@ -353,7 +357,7 @@ node test/manifest.test.mjs         # assembly: manifest ↔ patch ↔ module ag
 node test/readme.test.mjs           # README.md and README.zh.md stay structurally in step
 ```
 
-356 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
+364 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
 
 They also need no harness running, so they sidestep the one-harness-per-`$DSH_HOME` constraint entirely — `npm test` is the fast way to check the plugin without touching a live profile.
 
