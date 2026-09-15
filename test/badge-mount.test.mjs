@@ -272,6 +272,43 @@ await test('the toolbar is hidden until the pointer arrives', () => {
   badge.dispose();
 });
 
+await test('the toolbar never covers the character', () => {
+  // The badge rests 24px from the bottom edge, so a toolbar placed below it would
+  // fall out of the viewport — and the first version clamped it to a fixed offset
+  // that sat 16px ABOVE the badge's own bottom edge, covering the character's feet
+  // at the default position. It has to go above instead.
+  const { badge, root, document: doc } = mount();
+  root.emit('pointerenter');
+  const toolbar = toolbarOf(doc);
+  const badgeTop = Number.parseFloat(root.style.top);
+  const badgeBottom = badgeTop + root.offsetHeight;
+  const toolbarTop = Number.parseFloat(toolbar.style.top);
+  const toolbarBottom = toolbarTop + toolbar.offsetHeight;
+  assert.equal(
+    toolbarTop < badgeBottom && toolbarBottom > badgeTop,
+    false,
+    `the toolbar (${toolbarTop}..${toolbarBottom}) overlaps the character (${badgeTop}..${badgeBottom})`,
+  );
+  assert.ok(toolbarTop >= 0, 'and it must stay inside the viewport');
+  badge.dispose();
+});
+
+await test('the toolbar goes below when the character has room under it', () => {
+  // The complement of the case above: the flip is conditional, not the toolbar
+  // simply moving to the top of the screen.
+  const { badge, root, document: doc } = mount();
+  root.emit('pointerdown', { clientX: 400, clientY: 200, pointerId: 1 });
+  root.emit('pointermove', { clientX: 300, clientY: 40 });
+  root.emit('pointerup', {});
+  root.emit('pointerenter');
+  const badgeBottom = Number.parseFloat(root.style.top) + root.offsetHeight;
+  assert.ok(
+    Number.parseFloat(toolbarOf(doc).style.top) >= badgeBottom,
+    'with the character near the top, the toolbar belongs underneath it',
+  );
+  badge.dispose();
+});
+
 await test('every toolbar button posts an action the endpoint accepts', async () => {
   const state = { engaged: true, heldCount: 2, releaseAtMs: Date.now() + 3_600_000, overrideActive: true, overrideUntilMs: Date.now() + 60_000 };
   const { badge, root, document: doc, posted } = mount({ state });
