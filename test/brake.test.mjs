@@ -689,24 +689,77 @@ await test('a release pass delivers each held message exactly once', async () =>
   }
 });
 
-await test('a one-shot override is spent by the release pass it served', async () => {
+await test('a released one-shot override admits the work instead of re-parking it', async () => {
+  // Regression guard for the defect a real session hit: the override released
+  // the message, the driver claimed it immediately, and the guard — seeing its
+  // own override already spent and peak still in force — parked it again in the
+  // same instant. The operator saw "releasing now" and then nothing.
   const restore = freezeClock('2026-09-15T02:00:00Z');
   try {
     const ctx = createContext();
     const control = apply(ctx, { home, locale: 'en' });
-    const agent = createAgent('session-once-spent');
+    const agent = createAgent('session-once-admits');
     await ctx.emit('agent/created', { agent });
-    agent.inbox.append('next-turn', userMessage('m1', 'x'));
+    agent.inbox.append('next-turn', userMessage('m1', 'urgent work'));
     await agent.proposeStep();
+    assert.equal(agent.pending.length, 0, 'held before the override');
 
     await control.runCommand(agent, 'now');
-    assert.equal(control.isOverrideLive(), true);
+    assert.equal(control.isOverrideLive(), true, 'the override survives its own release');
     await control.releaseNow();
-    assert.equal(control.isOverrideLive(), false, 'a one-shot override must not survive its release');
+    assert.equal(agent.pending.length, 1, 'the work is back in the inbox');
 
-    // The brake must be back in force, or the override was not really one-shot.
+    // This is the step that used to re-park it.
+    const decision = await agent.proposeStep();
+    assert.equal(decision.kind, 'enter', 'the released work must reach the model, not return to the ledger');
+    assert.equal(decision.messages[0].content.at(-1).text, 'urgent work');
+    assert.equal(control.isOverrideLive(), false, 'admitting the work spends the one-shot override');
+    assert.equal(agent.pending.length, 0, 'nothing is left in the inbox');
+
+    const { createHoldLedger } = await import('../lib/hold-ledger.js');
+    const leftover = await createHoldLedger({ home }).load('session-once-admits');
+    assert.deepEqual(leftover, { ok: true, batch: undefined }, 'the ledger must be empty, not re-created');
+  } finally {
+    restore();
+  }
+});
+
+await test('the brake re-arms after a one-shot override has been admitted', async () => {
+  const restore = freezeClock('2026-09-15T02:00:00Z');
+  try {
+    const ctx = createContext();
+    const control = apply(ctx, { home, locale: 'en' });
+    const agent = createAgent('session-once-rearms');
+    await ctx.emit('agent/created', { agent });
+    agent.inbox.append('next-turn', userMessage('m1', 'released work'));
+    await agent.proposeStep();
+    await control.runCommand(agent, 'now');
+    await control.releaseNow();
+    assert.equal((await agent.proposeStep()).kind, 'enter', 'the released work passes');
+
+    // Later work during the same peak must be held again, or `once` was not once.
     agent.inbox.append('next-turn', userMessage('m2', 'later work'));
-    assert.equal((await agent.proposeStep()).kind, 'reject', 'the guard must re-arm after a one-shot override');
+    assert.equal((await agent.proposeStep()).kind, 'reject', 'the guard must re-arm after the override is spent');
+  } finally {
+    restore();
+  }
+});
+
+await test('an unused one-shot override expires at the schedule boundary', async () => {
+  // Bounding `once` by the boundary is what keeps "release once" from leaving the
+  // brake switched off for good if the operator walks away.
+  let restore = freezeClock('2026-09-15T02:00:00Z');
+  try {
+    const ctx = createContext();
+    const control = apply(ctx, { home, locale: 'en' });
+    const agent = createAgent('session-once-expiry');
+    await ctx.emit('agent/created', { agent });
+    await control.runCommand(agent, 'now');
+    assert.equal(control.isOverrideLive(), true);
+
+    restore();
+    restore = freezeClock('2026-09-15T04:30:00Z'); // past the peak end at 04:00
+    assert.equal(control.isOverrideLive(), false, 'an unspent one-shot must not outlive its boundary');
   } finally {
     restore();
   }
