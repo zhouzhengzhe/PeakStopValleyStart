@@ -226,6 +226,7 @@ function mount(options = {}) {
     // to sleep; the cases about the grace period ask for a real one.
     hoverGraceMs: options.hoverGraceMs ?? 0,
     ...(options.sizePx === undefined ? {} : { sizePx: options.sizePx }),
+    ...(options.panelAutoHideMs === undefined ? {} : { panelAutoHideMs: options.panelAutoHideMs }),
   });
   const root = document_.body.children.find((child) => child.id === 'peak-valley-brake-badge');
   const bubble = document_.body.children.find((child) => child !== root && child.style.borderRadius === '10px' && child.tagName === 'div' && child.children.length >= 0 && child !== root);
@@ -680,9 +681,55 @@ await test('the panel header is brand blue in every state, including a grey-bead
   const glow = header.children[0].children[0];
   const pill = header.children[1];
   assert.equal(beadLayer(doc, 'shell').style.background, '#8e9aa8', 'the bead is grey: the badge is doing nothing');
-  assert.match(glow.style.background, /brand-primary/u, 'but the panel header is not');
+  // The mark is a solid core inside a soft halo, not one blurred dot: blurring the whole
+  // thing read as out of focus rather than as glowing.
+  const core = glow.children.find((child) => child.style.filter === undefined);
+  const halo = glow.children.find((child) => child.style.filter !== undefined);
+  assert.match(core.style.background, /brand-primary/u, 'the header mark is the panel colour, not the state colour');
+  assert.match(halo.style.filter, /blur\(/u, 'and it has a halo rather than being blurred itself');
   assert.match(pill.style.color, /brand-primary/u);
   assert.equal(pill.textContent, 'LIVE');
+  badge.dispose();
+});
+
+await test('a panel opened by hand closes itself again', async () => {
+  // Reported: clicking status left the panel up for good. It is a glance, not a fixture —
+  // and the lifetime is a setting, because "how long is enough to read this" is a
+  // preference rather than a fact.
+  const idle = { engaged: false, heldCount: 0, overrideActive: false, phase: 'open' };
+  const { badge, root, document: doc } = mount({ state: idle, panelAutoHideMs: 60 });
+  root.emit('pointerenter');
+  toolbarOf(doc).children[0].emit('click', { stopPropagation() {} });
+  assert.equal(bubbleOf(doc).style.display, 'block');
+
+  await wait(220);
+  assert.equal(bubbleOf(doc).style.display, 'none', 'it closes on its own');
+  assert.equal(toolbarOf(doc).children[0].attributes['aria-pressed'], 'false', 'and the mark agrees');
+  badge.dispose();
+});
+
+await test('a lifetime of zero leaves the panel up until it is closed by hand', async () => {
+  const idle = { engaged: false, heldCount: 0, overrideActive: false, phase: 'open' };
+  const { badge, root, document: doc } = mount({ state: idle, panelAutoHideMs: 0 });
+  root.emit('pointerenter');
+  toolbarOf(doc).children[0].emit('click', { stopPropagation() {} });
+  await wait(150);
+  assert.equal(bubbleOf(doc).style.display, 'block', 'zero means "leave it alone"');
+
+  toolbarOf(doc).children[0].emit('click', { stopPropagation() {} });
+  assert.equal(bubbleOf(doc).style.display, 'none', 'and a second click still closes it');
+  badge.dispose();
+});
+
+await test('a panel reporting a hold is not on a clock', async () => {
+  // The timer is for a panel the operator opened. One that appeared because work is being
+  // withheld is reporting a *situation*, and taking it away on a timer would remove the
+  // explanation while the condition it explains is still true.
+  const held = { engaged: true, heldCount: 2, releaseAtMs: Date.now() + 3_600_000, phase: 'peak' };
+  const { badge, document: doc } = mount({ state: held, panelAutoHideMs: 40 });
+  assert.equal(bubbleOf(doc).style.display, 'block', 'a hold shows the panel by itself');
+  await wait(200);
+  assert.equal(bubbleOf(doc).style.display, 'block', 'and it is still there');
   badge.dispose();
 });
 
@@ -721,7 +768,7 @@ await test('the panel stays a panel even if the stylesheet never lands', () => {
   const tab = toolbarOf(document_).children[0];
   assert.equal(tab.style.display, 'flex');
   assert.equal(tab.style.flexDirection, 'column', 'the glyph sits above its label');
-  assert.equal(tab.style.width, '81px');
+  assert.equal(tab.style.width, '70px');
   badge.dispose();
 });
 
