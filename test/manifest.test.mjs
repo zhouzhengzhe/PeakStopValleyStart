@@ -188,5 +188,24 @@ await test('the package name is a valid npm specifier the loader can resolve', (
   assert.ok(!manifest.name.startsWith('.'), 'a relative name would not be installable');
 });
 
+await test('publishing to the public registry is refused, not merely discouraged', () => {
+  // `private: true` alone did not stop `npm publish --dry-run` from exiting 0,
+  // and this name is unclaimed on npm — so one command without `--dry-run` would
+  // publish the package irreversibly. The prepublishOnly seal is what actually
+  // refuses it. This assertion keeps the seal from being deleted later as
+  // "unnecessary packaging friction".
+  assert.equal(manifest.private, true, 'private: true is the first line of defence');
+  assert.match(
+    manifest.scripts?.prepublishOnly ?? '',
+    /process\.exit\(1\)/u,
+    'prepublishOnly must fail the publish, not merely warn',
+  );
+  assert.equal(
+    manifest.publishConfig?.access,
+    'restricted',
+    'a restricted default keeps an accidental publish out of the public registry',
+  );
+});
+
 process.stdout.write(`\n${results.passed} passed, ${results.failed} failed\n`);
 if (results.failed > 0) process.exitCode = 1;

@@ -114,16 +114,36 @@
 
 由 `scripts/embed-mascot.ps1` 生成 `lib/mascot-data.js`（不改图就不需要重新生成）。这同时让 client bundle 自包含——不依赖任何宿主路由，也少一个失败点。
 
-### 动作方向：客户端 → 宿主
+### 动作方向：客户端 → 宿主（已实测确认）
 
-`dsh-client-auto-continue` 是现成先例：**POST 动作端点**。我们照做：
+**实测结论**（不是推断）：
 
-- `POST /plugins/peak-valley-brake/action`，body `{ sessionId, action: 'now'|'window'|'cancel'|'status' }`
-- host 侧接到后调用**已有的命令处理器**（`commandHandler`），复用同一套逻辑与审计，按钮与命令行行为严格一致
+| 问题 | 答案 | 依据 |
+|---|---|---|
+| DSH Desktop 的 GUI 怎么加载？ | **HTTP**，不是 `file://` | 主进程 `await window.loadURL(rendererUrl)`，且显式判断 `127.0.0.1`/`localhost`/`::1` |
+| `globalThis.__DSH_TRANSPORT__` 相关吗？ | **不相关** | 全盘搜索只有读取方、无注入点；它只服务 `file://` 模式 |
+| webServer 路由可用吗？ | **可用** | HTTP 页面下同源 `fetch` 本就通 |
+| 端点该放哪个前缀？ | **必须在 `/api` 之下** | `/api` 是宿主唯一持有并负责认证与 Host/Origin 校验的前缀 |
 
-这样按钮**不可能偏离命令语义**——它们是同一个函数。
+**权威写法**（取自已装插件 `dsh-session-log-export` 的真实代码）：
 
-**但这里有一个待解决的对称问题**：动作端点走 HTTP，而 Electron 经 IPC 桥接 fetch——桥接是否覆盖任意路径、还是只覆盖 `/api`，我还没有核实。若只覆盖 `/api`，则动作端点也要改走 `@api` 前缀或另寻通道。**这是 client 阶段要先实测的第一件事。**
+```js
+const inject = ["commands", "connection"];
+connectionOf(ctx).fetch.register({
+  path: '/api/session.export',        // 必须以 /api 开头
+  methods: ['GET', 'HEAD'],
+  requestBody: 'buffered',
+  fetch: async (request) => new Response(...),
+});
+```
+
+宿主的唯一 `/api` route 先做认证与信任校验，再分发给按精确路径注册的功能插件；**未认领的请求返回 404**。
+
+因此徽章的动作端点定为 **`/api/peak-valley-brake.action`**（沿用同一点号风格）。handler 直接调用已有的 `commandHandler`，**按钮与命令行是同一个函数**，语义不可能偏离。
+
+`connection` 声明为**可选**依赖并做容错探测：`file://` 部署与 headless 组合没有它，此时插件仍须正常守卫，只是徽章按钮不可用。
+
+**教训**：设计初稿写的是"用 `ctx.webServer` 注册 `/plugins/.../mascot/...` 提供图片"，并认为动作端点要"另寻通道"。两处都基于对部署形态的猜测。实测把两者都纠正了——图片改为 data URI 内联（两种模式都对），动作端点走 `/api` 下的精确路由（宿主统一认证）。
 
 ## 8. 需要你确认的取舍
 
