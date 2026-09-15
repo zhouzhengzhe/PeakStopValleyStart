@@ -309,6 +309,54 @@ await test('the toolbar goes below when the character has room under it', () => 
   badge.dispose();
 });
 
+await test('the bubble does not land on top of the toolbar', () => {
+  // Both want the space above the character, and during a hold they are on screen
+  // together the moment the pointer arrives: the toolbar flips above at the
+  // default resting place, and the bubble is always above. The bubble therefore
+  // has to clear the toolbar rather than share the spot.
+  const state = { engaged: true, heldCount: 2, releaseAtMs: Date.now() + 3_600_000 };
+  const { badge, root, document: doc } = mount({ state });
+  root.emit('pointerenter');
+
+  const bubbleTop = Number.parseFloat(bubbleOf(doc).style.top);
+  const bubbleBottom = bubbleTop + bubbleOf(doc).offsetHeight;
+  const toolbarTop = Number.parseFloat(toolbarOf(doc).style.top);
+  const toolbarBottom = toolbarTop + toolbarOf(doc).offsetHeight;
+
+  assert.equal(bubbleOf(doc).style.display, 'block', 'a hold must show the bubble');
+  assert.equal(toolbarOf(doc).style.display, 'flex', 'hovering must show the toolbar');
+  assert.equal(
+    bubbleTop < toolbarBottom && bubbleBottom > toolbarTop,
+    false,
+    `the bubble (${bubbleTop}..${bubbleBottom}) overlaps the toolbar (${toolbarTop}..${toolbarBottom})`,
+  );
+  assert.ok(bubbleTop >= 0, 'and the bubble must stay inside the viewport');
+  badge.dispose();
+});
+
+await test('the bubble stays clear while the character is dragged', () => {
+  // The drag path used to place the bubble and the toolbar itself, so a drag could
+  // put them back on top of each other.
+  const state = { engaged: true, heldCount: 1, releaseAtMs: Date.now() + 3_600_000 };
+  const { badge, root, document: doc } = mount({ state });
+  root.emit('pointerenter');
+  for (const spot of [{ x: 900, y: 60 }, { x: 120, y: 700 }, { x: 600, y: 400 }]) {
+    root.emit('pointerdown', { clientX: 10, clientY: 10, pointerId: 1 });
+    root.emit('pointermove', { clientX: spot.x, clientY: spot.y });
+    root.emit('pointerup', {});
+  }
+  const bubbleTop = Number.parseFloat(bubbleOf(doc).style.top);
+  const bubbleBottom = bubbleTop + bubbleOf(doc).offsetHeight;
+  const toolbarTop = Number.parseFloat(toolbarOf(doc).style.top);
+  const toolbarBottom = toolbarTop + toolbarOf(doc).offsetHeight;
+  assert.equal(
+    bubbleTop < toolbarBottom && bubbleBottom > toolbarTop,
+    false,
+    `after dragging, the bubble (${bubbleTop}..${bubbleBottom}) overlaps the toolbar (${toolbarTop}..${toolbarBottom})`,
+  );
+  badge.dispose();
+});
+
 await test('every toolbar button posts an action the endpoint accepts', async () => {
   const state = { engaged: true, heldCount: 2, releaseAtMs: Date.now() + 3_600_000, overrideActive: true, overrideUntilMs: Date.now() + 60_000 };
   const { badge, root, document: doc, posted } = mount({ state });
