@@ -380,6 +380,27 @@ SKIP_TESTS=1 git push
 
 `.githooks/**` 在 `.gitattributes` 里被钉为 LF。CRLF 的 shebang 会让 Git Bash 去找一个名为 `/bin/sh\r` 的解释器，钩子以 `bad interpreter` 失败——那种报错看起来像仓库坏了，而不像行尾问题。
 
+### 徽章形象素材
+
+徽章的角色素材放在 `assets/mascot/`。那里的根目录文件是全尺寸原图；带数字的子目录（`128/`、`200/`、`320/`）是按徽章实际渲染高度生成的派生图，每个状态一张：
+
+| 文件 | 对应的状态 |
+|---|---|
+| `idle.png` | 谷时，没有拦截 |
+| `armed.png` | 峰前刹车窗口内 |
+| `held.png` | 峰时，正在拦截 |
+| `released.png` | 刚刚放行 |
+
+改动任一张原图后重新生成派生图：
+
+```sh
+pwsh -File scripts/resize-mascot.ps1
+```
+
+它刻意使用 `System.Drawing` 而不是 `sharp`：`sharp` 虽然装在桌面应用的 `node_modules` 里，但它是针对 Electron 的 Node ABI 编译的，普通系统 Node 加载不了。脚本写出 32 位 ARGB，所以抠图背景保持透明——背景若被压平，徽章后面就会出现一个色块。
+
+`test/assets.test.mjs` 断言每个状态在每个尺寸下都有素材、每个文件都是真正的 PNG 且不超过体积上限、并且素材目录与状态清单一致。这些断言之所以存在，是因为**在浏览器里，缺文件不会表现为测试失败，而是一个静默空白的徽章**——而这恰恰是本项目自己无法观察到的部分。
+
 ## 许可证
 
 MIT

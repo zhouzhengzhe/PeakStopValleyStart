@@ -381,6 +381,27 @@ It is deliberately spelled out rather than wired to `git push --no-verify`, whic
 
 `.githooks/**` is pinned to LF in `.gitattributes`. A CRLF shebang makes Git Bash look for an interpreter named `/bin/sh\r`, and the hook dies with `bad interpreter` — a failure that looks like a broken repository rather than a line-ending problem.
 
+### The mascot art
+
+The badge's character art lives in `assets/mascot/`. The sources there are the full-size originals; the numbered subdirectories (`128/`, `200/`, `320/`) are generated derivatives at the heights the badge actually renders, one per state:
+
+| File | State it depicts |
+|---|---|
+| `idle.png` | off-peak, nothing withheld |
+| `armed.png` | inside the pre-peak brace |
+| `held.png` | peak, work is being withheld |
+| `released.png` | work has just been released |
+
+Regenerate the derivatives after changing any source:
+
+```sh
+pwsh -File scripts/resize-mascot.ps1
+```
+
+It uses `System.Drawing` rather than `sharp`, deliberately: `sharp` ships inside the desktop app's `node_modules` but is built for Electron's Node ABI, so it does not load under a plain system Node. The script writes 32-bit ARGB, so the cut-out backgrounds stay transparent — a flattened background would show as a coloured box behind the badge.
+
+`test/assets.test.mjs` asserts that every state has art at every size, that each file is a real PNG within a size ceiling, and that the art directory and the state list agree. Those assertions exist because a missing file is not a failing test in a browser — it is a silently blank badge, which is precisely what this project cannot observe by itself.
+
 ## License
 
 MIT
