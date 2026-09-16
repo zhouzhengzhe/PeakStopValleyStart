@@ -290,6 +290,8 @@ The glass surface is mixed from theme tokens with `color-mix`, so one rule frost
 
 Reading the `peakValleyBrake` projection in the browser is the obvious design, and it cannot work. The client half of this harness provides `connection`, `locale`, `theme`, `chatFileMentions`, `sessionLogDownload` and the cordis runner's own pair — and no session registry and no projection registry. A client plugin that declares a service nobody provides is parked until it appears, so it never activates: the badge simply never mounts, and nothing anywhere reports an error.
 
+The hold also must not be published as a session event at all, which is a stronger reason than the missing registry. The harness resolves a stored log against `KNOWN_SESSION_EVENT_TYPES`, a list generated at build time from its own repository's `SessionEventMap`, so a downstream plugin's event type is outside it by construction. The documented compatibility mechanism is the envelope's `ignorable: true` marker, and `Session.append()` accepts only `surfaceOp` and `sourceEventSeqs` — a plugin cannot set it. An unmarked event type of our own therefore makes every session the brake ever held work in **permanently unloadable**: the read path refuses the whole log rather than skipping one record. Two such records were enough to refuse a 9244-record session, and because the projection had no consumer either, the write bought nothing at all. The state stays in memory and the badge reads it over the route below.
+
 So the state travels over `POST /api/peak-valley-brake.action`, which the host can answer because the host owns both services and is the only side that knows which session the operator is looking at. The badge's first poll names no session; the host answers with one, and the badge sends it back from then on. Every answer carries the current state, so acting and refreshing are one round trip rather than two.
 
 ### Why the badge sits behind the same fence
@@ -389,7 +391,7 @@ dsh-peak-valley-brake
 │   ├── locale.js          # language resolution
 │   ├── hold-ledger.js     # durable record of withheld work
 │   ├── workspace-drift.js # workspace fingerprinting and drift reporting
-│   ├── hold-state.js      # the session event and projection a client reads
+│   ├── hold-state.js      # the state a client reads, and the rule for advancing it
 │   ├── badge-view.js      # pure badge decisions: pose, bubble, toolbar
 │   ├── badge-mount.js     # the badge as DOM, a function of its dependencies
 │   ├── badge-api.js       # the host route the toolbar buttons call

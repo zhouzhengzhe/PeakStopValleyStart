@@ -289,6 +289,8 @@ DSH_PEAK_VALLEY_BRAKE_DEBUG=1 dsh web
 
 在浏览器里直接读 `peakValleyBrake` 投影是最直观的设计，但它行不通。这个 harness 的客户端半边只提供 `connection`、`locale`、`theme`、`chatFileMentions`、`sessionLogDownload`，以及 cordis runner 自己的两个服务——**没有**会话注册表，也**没有**投影注册表。客户端插件若声明了一个没人提供的服务，就会被一直挂着等它出现，于是永远不激活：徽章就是**根本不出现**，而且任何地方都不会报错。
 
+而且持有状态**根本不该写进会话日志**——这比缺少投影注册表更硬。harness 会用 `KNOWN_SESSION_EVENT_TYPES` 校验存储下来的日志，而这张表是构建期从它自己仓库的 `SessionEventMap` 生成的，仓库外插件的事件类型**天然不在表内**。文档化的兼容机制是事件信封上的 `ignorable: true`，而 `Session.append()` 只接受 `surfaceOp` 与 `sourceEventSeqs`——插件根本设不上这个标记。于是，一个我们自己命名、又没标记的事件类型，会让**所有被它拦过工作的会话永久无法加载**：读路径是整份日志拒收，而不是跳过那一条。两条这样的记录就足以让一段 9244 条记录的会话被拒；而那个投影本来也没有任何读取方，这笔写入什么都没有换来。状态因此留在内存里，由徽章走下面的路由读取。
+
 所以状态改走 `POST /api/peak-valley-brake.action`。宿主答得出来，因为那两个服务都在宿主侧，也因为只有宿主知道操作者正在看哪个会话。徽章的第一次轮询不带会话 id，宿主回一个，此后徽章就一直带着它。每个响应都附带当前状态，因此「执行动作」与「刷新显示」是一次往返而不是两次。
 
 ### 徽章为什么待在同一道围栏之内
@@ -388,7 +390,7 @@ dsh-peak-valley-brake
 │   ├── locale.js         # 语言解析
 │   ├── hold-ledger.js    # 被扣工作的持久记录
 │   ├── workspace-drift.js# 工作区指纹与漂移报告
-│   ├── hold-state.js     # 客户端读取的会话事件与投影
+│   ├── hold-state.js     # 客户端读取的状态，以及推进它的规则
 │   ├── badge-view.js     # 徽章的纯决策：形象、气泡、工具栏
 │   ├── badge-mount.js    # 徽章的 DOM 实现，是各依赖的函数
 │   ├── badge-api.js      # 工具栏按钮调用的宿主路由

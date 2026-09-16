@@ -1,13 +1,14 @@
 /**
- * Self-check for the brake's published state: the event vocabulary, the fold,
- * and the write-suppression rule.
+ * Self-check for the brake's published state: its shape, the live overlay, and
+ * the advance-suppression rule.
  *
  * Run with `node test/hold-state.test.mjs`.
  *
- * The fold is where a client-visible bug would hide quietly: a fold that copies
- * state on unrelated events defeats the registry's change detection, and one
- * that trusts a malformed record corrupts the badge. Both are asserted here
- * rather than left to a browser to reveal.
+ * The state is never written to the session log — a session event of this
+ * plugin's own type makes the whole session unloadable, because the harness
+ * resolves stored logs against a vocabulary generated from its own repository.
+ * The first case below is the regression guard for exactly that, so the defect
+ * cannot come back in a different shape.
  *
  * @module peak-valley-brake/test/hold-state
  */
@@ -16,15 +17,11 @@ import assert from 'node:assert/strict';
 
 import {
   EMPTY_HOLD_STATE,
-  HOLD_EVENT_TYPE,
-  HOLD_PROJECTION_KEY,
-  HOLD_STATE_VERSION,
-  applyHoldEvent,
   composeLiveState,
-  holdProjectionDefinition,
   holdStateDiffers,
   holdStateFor,
-  publishHoldState,
+  holdStateSchema,
+  nextPublishedState,
   releaseStateFor,
 } from '../lib/hold-state.js';
 
@@ -61,70 +58,54 @@ const HOLD = holdStateFor({
 
 process.stdout.write('peak-valley-brake published hold state\n\n');
 
-process.stdout.write('event vocabulary\n');
+process.stdout.write('the session log stays untouched\n');
 
-test('the event type is namespaced to this plugin', () => {
-  assert.match(HOLD_EVENT_TYPE, /^peak-valley-brake\//u);
-  assert.equal(HOLD_PROJECTION_KEY, 'peakValleyBrake');
-  assert.equal(HOLD_STATE_VERSION, 1);
+test('advancing the state never writes a session event', () => {
+  // The regression guard. This state used to be published as a
+  // `peak-valley-brake/change` session event; the harness refuses to load any
+  // stored log containing an event type outside its build-time vocabulary, and a
+  // plugin cannot mark its own type ignorable, so two such records made a
+  // 9244-record session permanently unreadable. The projection that folded them
+  // had no consumer either. Nothing here may reach a session, ever.
+  const touched = [];
+  const session = {
+    id: 'session-regression',
+    append: (...args) => touched.push(args),
+    appendEvent: (...args) => touched.push(args),
+    log: { push: (...args) => touched.push(args) },
+  };
+
+  const outcome = nextPublishedState(HOLD, undefined);
+  assert.equal(outcome.written, true, 'the state still advances for the badge');
+  assert.equal(touched.length, 0, 'and the session is never touched');
+
+  // The writer no longer takes a session at all, so there is no parameter
+  // through which a caller could hand it one by accident.
+  assert.equal(nextPublishedState.length, 2, 'the signature is (next, previous)');
+  assert.deepEqual(touched, []);
 });
 
-test('the projection definition carries every field the registry requires', () => {
-  assert.equal(typeof holdProjectionDefinition.key, 'string');
-  assert.equal(typeof holdProjectionDefinition.stateVersion, 'number');
-  assert.equal(typeof holdProjectionDefinition.init, 'function');
-  assert.equal(typeof holdProjectionDefinition.apply, 'function');
-  assert.equal(typeof holdProjectionDefinition.stateSchema, 'object');
-  assert.equal(typeof holdProjectionDefinition.wire.view, 'function');
-  assert.equal(typeof holdProjectionDefinition.wire.viewSchema, 'object');
+test('the module exports no session event vocabulary at all', async () => {
+  // Absence, not documentation: a future edit cannot reintroduce the write by
+  // importing an event type that no longer exists.
+  const module = await import('../lib/hold-state.js');
+  assert.equal(module.HOLD_EVENT_TYPE, undefined, 'there is no event type to append');
+  assert.equal(module.HOLD_PROJECTION_KEY, undefined, 'and no projection key to register');
+  assert.equal(module.holdProjectionDefinition, undefined, 'and no projection to publish into');
+  assert.equal(module.publishHoldState, undefined, 'and no writer that takes a session');
 });
 
-test('the definition is frozen, so a consumer cannot mutate the contract', () => {
-  assert.ok(Object.isFrozen(holdProjectionDefinition));
+process.stdout.write('\nthe state shape\n');
+
+test('the empty state says nothing is held', () => {
+  assert.equal(EMPTY_HOLD_STATE.engaged, false);
+  assert.equal(EMPTY_HOLD_STATE.heldCount, 0);
+  assert.equal(EMPTY_HOLD_STATE.reason, null);
+  assert.equal(EMPTY_HOLD_STATE.overrideActive, false);
 });
 
-process.stdout.write('\nthe fold\n');
-
-test('init yields a state that says nothing is held', () => {
-  const initial = holdProjectionDefinition.init();
-  assert.equal(initial.engaged, false);
-  assert.equal(initial.heldCount, 0);
-  assert.equal(initial.reason, null);
-  assert.equal(initial.overrideActive, false);
-});
-
-test('an unrelated event returns the same reference, not a copy', () => {
-  // The registry compares with Object.is to skip downstream work; returning a
-  // fresh object here would make every event in the session recompute the view.
-  const same = applyHoldEvent(EMPTY_HOLD_STATE, { type: 'turn/start', data: {} });
-  assert.equal(same, EMPTY_HOLD_STATE, 'an unrelated event must not allocate');
-});
-
-test('a hold event folds to exactly the published state', () => {
-  const folded = applyHoldEvent(EMPTY_HOLD_STATE, { type: HOLD_EVENT_TYPE, data: HOLD });
-  assert.deepEqual(folded, HOLD);
-});
-
-test('a malformed record keeps the previous state instead of corrupting the view', () => {
-  const kept = applyHoldEvent(HOLD, { type: HOLD_EVENT_TYPE, data: { engaged: 'yes' } });
-  assert.equal(kept, HOLD);
-});
-
-test('a record missing fields is rejected rather than partially applied', () => {
-  const kept = applyHoldEvent(EMPTY_HOLD_STATE, { type: HOLD_EVENT_TYPE, data: { engaged: true } });
-  assert.equal(kept, EMPTY_HOLD_STATE);
-});
-
-test('the fold is a pure replacement, so replay order is the only state', () => {
-  const later = releaseStateFor({ phase: 'open', releaseReason: 'schedule', nowMs: NOW + 1000 });
-  const first = applyHoldEvent(EMPTY_HOLD_STATE, { type: HOLD_EVENT_TYPE, data: HOLD });
-  const second = applyHoldEvent(first, { type: HOLD_EVENT_TYPE, data: later });
-  assert.deepEqual(second, later, 'the newest record wins whole');
-});
-
-test('the wire view is the state itself today', () => {
-  const view = holdProjectionDefinition.wire.view(HOLD);
-  assert.deepEqual(view, HOLD);
+test('the empty state decodes through the schema the client uses', () => {
+  assert.equal(holdStateSchema.safeParse(EMPTY_HOLD_STATE).success, true);
 });
 
 process.stdout.write('\nwrite suppression\n');
@@ -153,38 +134,22 @@ test('a missing previous state always writes', () => {
   assert.equal(holdStateDiffers(undefined, HOLD), true);
 });
 
-test('publishing writes once and then stays silent while nothing changes', () => {
-  const written = [];
-  const session = { append: (type, data) => written.push({ type, data }) };
-  const first = publishHoldState(session, HOLD, undefined);
-  assert.equal(first.written, true);
-  assert.equal(written.length, 1);
-  assert.equal(written[0].type, HOLD_EVENT_TYPE);
+test('an unchanged first state is announced once and then stays silent', () => {
+  const first = nextPublishedState(HOLD, undefined);
+  assert.equal(first.written, true, 'a state nobody has seen is worth announcing');
+  assert.deepEqual(first.state, HOLD);
 
-  const second = publishHoldState(session, { ...HOLD, updatedAtMs: NOW + 60_000 }, first.state);
-  assert.equal(second.written, false, 'a timestamp-only change must not write');
-  assert.equal(written.length, 1, 'the log must not gain a duplicate record');
+  const second = nextPublishedState({ ...HOLD, updatedAtMs: NOW + 60_000 }, first.state);
+  assert.equal(second.written, false, 'a timestamp-only change must not be re-announced');
+  assert.equal(second.reason, 'unchanged');
 });
 
-test('a refused append is reported and leaves the published state untouched', () => {
-  const session = {
-    append: () => {
-      throw new Error('session closed');
-    },
-  };
-  const outcome = publishHoldState(session, HOLD, undefined);
-  assert.equal(outcome.written, false);
-  assert.match(outcome.reason, /session closed/u);
-  assert.equal(outcome.state, undefined);
-});
-
-test('an invalid state is refused rather than written', () => {
-  const written = [];
-  const session = { append: (type, data) => written.push({ type, data }) };
-  const outcome = publishHoldState(session, { engaged: true }, undefined);
+test('an invalid state is refused rather than replacing a good one', () => {
+  // A malformed state must leave the badge merely stale, never wrong.
+  const outcome = nextPublishedState({ engaged: true }, HOLD);
   assert.equal(outcome.written, false);
   assert.equal(outcome.reason, 'invalid');
-  assert.equal(written.length, 0);
+  assert.equal(outcome.state, HOLD, 'the last good state survives');
 });
 
 process.stdout.write('\nstate construction\n');
@@ -234,12 +199,9 @@ test('a release caused by an override says so, and keeps the override live', () 
 });
 
 test('an unknown phase or reason is not publishable', () => {
-  const written = [];
-  const session = { append: (type, data) => written.push({ type, data }) };
-  assert.equal(publishHoldState(session, { ...HOLD, phase: 'twilight' }, undefined).written, false);
-  assert.equal(publishHoldState(session, { ...HOLD, reason: 'vibes' }, undefined).written, false);
-  assert.equal(publishHoldState(session, { ...HOLD, lastReleaseReason: 'guesswork' }, undefined).written, false);
-  assert.equal(written.length, 0);
+  assert.equal(nextPublishedState({ ...HOLD, phase: 'twilight' }, undefined).written, false);
+  assert.equal(nextPublishedState({ ...HOLD, reason: 'vibes' }, undefined).written, false);
+  assert.equal(nextPublishedState({ ...HOLD, lastReleaseReason: 'guesswork' }, undefined).written, false);
 });
 
 process.stdout.write('\nthe state handed to a client right now\n');
@@ -355,7 +317,7 @@ test('a live override is reflected even when nothing is held', () => {
  * @returns {string[]} the schema issues, empty when it decodes.
  */
 function holdStateSchemaShape(state) {
-  const decoded = holdProjectionDefinition.stateSchema.safeParse(state);
+  const decoded = holdStateSchema.safeParse(state);
   return decoded.success ? [] : decoded.error.issues.map((issue) => issue.path.join('.'));
 }
 
