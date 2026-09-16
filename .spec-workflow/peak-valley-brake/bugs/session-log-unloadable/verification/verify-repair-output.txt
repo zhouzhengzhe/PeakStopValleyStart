@@ -1,0 +1,15 @@
+[verify] records: backup=9244 repaired=9244
+[verify] changed records: 2
+  index 9065: seq 9064 type peak-valley-brake/change
+    before: {"type":"peak-valley-brake/change","seq":9064,"time":1789539038410,"data":{"engaged":true,"phase":"peak","heldCount":1,"reason":"peak","releaseAtMs":1789552860000,"lastReleaseReason":null,"lastReleaseAtMs":null,"nextTransitionMs":1789552800000,"nextTransitionEdge":"peak-end","overrideActive":false,"overrideUntilMs":null,"updatedAtMs":1789539037993}}
+    after : {"type":"peak-valley-brake/change","seq":9064,"time":1789539038410,"data":{"engaged":true,"phase":"peak","heldCount":1,"reason":"peak","releaseAtMs":1789552860000,"lastReleaseReason":null,"lastReleaseAtMs":null,"nextTransitionMs":1789552800000,"nextTransitionEdge":"peak-end","overrideActive":false,"overrideUntilMs":null,"updatedAtMs":1789539037993},"ignorable":true}
+  index 9071: seq 9070 type peak-valley-brake/change
+    before: {"type":"peak-valley-brake/change","seq":9070,"time":1789539044414,"data":{"engaged":false,"phase":"peak","heldCount":0,"reason":null,"releaseAtMs":null,"lastReleaseReason":"override","lastReleaseAtMs":1789539044413,"nextTransitionMs":1789552800000,"nextTransitionEdge":"peak-end","overrideActive":true,"overrideUntilMs":1789552800000,"updatedAtMs":1789539044413}}
+    after : {"type":"peak-valley-brake/change","seq":9070,"time":1789539044414,"data":{"engaged":false,"phase":"peak","heldCount":0,"reason":null,"releaseAtMs":null,"lastReleaseReason":"override","lastReleaseAtMs":1789539044413,"nextTransitionMs":1789552800000,"nextTransitionEdge":"peak-end","overrideActive":true,"overrideUntilMs":1789552800000,"updatedAtMs":1789539044413},"ignorable":true}
+[verify] header at index 0: {"type":"session","version":3,"id":"session-6e0577de-b3ee-4e21-884b-208bd56393b8","createdAt":1789435229513,"cwd":"D:\\SoftDocument\\DSHProject\\PeakStopValleyStart","isSeeded":false,"delegationDepth":0,"agentPreset":"standard"}
+[verify] events (header excluded): 9243
+[verify] events outside the vocabulary and not ignorable: 0 []
+[verify] validateStoredEvents: LOADED (9243 events adopted)
+[verify] the two records keep their payload:
+  seq 9064: ignorable=true phase=peak heldCount=1 engaged=true
+  seq 9070: ignorable=true phase=peak heldCount=0 engaged=false

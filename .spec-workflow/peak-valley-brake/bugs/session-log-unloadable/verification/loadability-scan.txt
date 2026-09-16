@@ -1,0 +1,19 @@
+LOADABLE   session-029af4c6-18d6-43c9-9e8c-6c5cb9fee2c1  (4 records)
+LOADABLE   session-029af4c6-18d6-43c9-9e8c-6c5cb9fee2c1  (298 records)
+LOADABLE   session-3579b557-955d-4bfd-90ba-255daf70eb15  (569 records)
+LOADABLE   session-594e4b39-bdd0-42f5-98d4-11b9e3e11773  (74 records)
+
+UNLOADABLE session-ef16726c-8ed1-4788-b58c-411068b0a4f1  (712 records)
+  C:\Users\Aristotle\AppData\Roaming\dsh-desktop\harness\sessions\--D-SoftDocument-DSHProject--\session-ef16726c-8ed1-4788-b58c-411068b0a4f1\session.jsonl.zstd
+  blocking type=assistant/chunk count=191
+  blocking type=reasoning-chunks count=228
+  blocking type=tool-call-chunks count=120
+  blocking type=text-chunks count=32
+LOADABLE   session-ef16726c-8ed1-4788-b58c-411068b0a4f1  (420 records)
+LOADABLE   session-fb61b6db-be38-45d9-8ac7-7a75b011043f  (246 records)
+LOADABLE   d6cc4301-a421-4e4e-b29d-df66048d3375  (343 records)
+LOADABLE   session-6e0577de-b3ee-4e21-884b-208bd56393b8  (9244 records, 2 ignorable foreign event(s))
+LOADABLE   session-baf49cf9-9033-4de4-881a-92a0dee1348d  (664 records)
+LOADABLE   session-dd13b41b-0ac2-4792-bd80-4e5165242005  (9061 records)
+
+[pvb-repro] loadable=10 unloadable=1
