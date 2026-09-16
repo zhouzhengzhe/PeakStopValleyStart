@@ -721,15 +721,42 @@ await test('a lifetime of zero leaves the panel up until it is closed by hand', 
   badge.dispose();
 });
 
-await test('a panel reporting a hold is not on a clock', async () => {
-  // The timer is for a panel the operator opened. One that appeared because work is being
-  // withheld is reporting a *situation*, and taking it away on a timer would remove the
-  // explanation while the condition it explains is still true.
+await test('a panel reporting a hold is on the same clock as any other', async () => {
+  // Reported: the display time was configured but the panel stayed up for the whole peak
+  // window and had to be clicked away. An earlier version exempted a hold-reporting panel,
+  // reasoning that it explains a situation and would vanish while the situation held — but
+  // a situation lasts as long as the window does. It is a notification, not a fixture.
   const held = { engaged: true, heldCount: 2, releaseAtMs: Date.now() + 3_600_000, phase: 'peak' };
-  const { badge, document: doc } = mount({ state: held, panelAutoHideMs: 40 });
+  const { badge, document: doc } = mount({ state: held, panelAutoHideMs: 60 });
   assert.equal(bubbleOf(doc).style.display, 'block', 'a hold shows the panel by itself');
-  await wait(200);
-  assert.equal(bubbleOf(doc).style.display, 'block', 'and it is still there');
+
+  await wait(220);
+  assert.equal(bubbleOf(doc).style.display, 'none', 'and it leaves on its own');
+  badge.dispose();
+});
+
+await test('a dismissed panel comes back when the situation changes', async () => {
+  // The other half of the same defect: nothing ever cleared the dismissal, so the first
+  // click on the character silenced the badge for the rest of the session — a message held
+  // an hour later produced no panel at all.
+  // Mutated in place, not reassigned: `mount` reads `options.state`, so rebinding a local
+  // would leave the badge reading the object it was mounted with.
+  const state = { engaged: true, heldCount: 1, releaseAtMs: Date.now() + 3_600_000, phase: 'peak' };
+  const { badge, root, document: doc } = mount({ state, panelAutoHideMs: 0 });
+  assert.equal(bubbleOf(doc).style.display, 'block');
+
+  bubbleOf(doc).emit('click', { stopPropagation() {} });
+  assert.equal(bubbleOf(doc).style.display, 'none', 'dismissed');
+
+  // A second message is withheld: same session, new news.
+  state.heldCount = 2;
+  badge.refresh();
+  assert.equal(bubbleOf(doc).style.display, 'block', 'a new hold re-arms the panel');
+
+  bubbleOf(doc).emit('click', { stopPropagation() {} });
+  badge.refresh();
+  assert.equal(bubbleOf(doc).style.display, 'none', 'but a poll that brings nothing new does not');
+  root.emit('pointerenter');
   badge.dispose();
 });
 

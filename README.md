@@ -272,7 +272,11 @@ The next change is published because only the host can answer it — the browser
 
 The panel's *own* colour is neither of those: the header dot and the LIVE pill are brand blue in every state, because the design fixes them. Deriving them from the state accent made the whole header grey whenever the tariff was off-peak, which reads as "something is wrong" rather than as "everything is cheap". Three axes, three answers, and each one is asserted. The header mark is a solid dot inside a soft halo rather than one blurred dot — at 10px there is no room to be both lit and legible.
 
-A panel the operator opens **is on a clock**; one that appeared because work is being withheld is not. The first is a glance and closes after `panelAutoHideMs` — five seconds by default, zero meaning "leave it up until I close it", and editable on the plugin's settings page. The second is reporting a *situation*, and a timer would take the explanation away while the condition it explains is still true.
+The panel is a **notification, not a fixture**: it appears when something happens, and it closes itself after `panelAutoHideMs` — five seconds by default, zero meaning "leave it up until I dismiss it", and editable on the plugin's settings page. One rule for every panel, whether the operator asked for it or a hold produced it.
+
+An earlier version exempted the hold-reporting kind, on the reasoning that it explains a situation and should not vanish while the situation holds. That was wrong in the only way that mattered: a situation lasts as long as the peak window does, so the panel sat on screen for over an hour and had to be clicked away. The countdown is armed on the *transition* into visibility, never on every render, because the host polls every couple of seconds and re-arming there would restart it forever.
+
+A dismissal is likewise scoped **to the situation being dismissed**, not to the session. Dismissals are stored with a signature of what was on screen — the gate, the tariff, any override, how much is held, when the last release was — and lapse when that signature changes, so the next withheld message brings the panel back. That signature deliberately excludes the host's `updatedAtMs`, which moves on every poll; including it would make every poll look like news and the panel would return immediately after each dismissal. Before this, nothing ever cleared the flag, so the first click on the character silenced the badge for the rest of the session.
 
 The bar below is a pill of four tabs, each an icon above its label. The selected tab is *lighter* than the bar it sits in rather than tinted, as the design draws it, and the one it marks is the status tab — which is also the only operation that can never be unavailable. **The panel *is* the status**, so that tab pins the panel open rather than asking the host for a paragraph about the same facts; the mark travels as `aria-pressed` and is tied to whether the panel is actually open, so highlighting it states a fact rather than decorating a button. The other three still ask the host and show its answer, because a confirmation or a refusal is prose. An unavailable operation is dimmed rather than removed, because the bar doubles as the explanation of the current state.
 
@@ -369,7 +373,7 @@ node test/manifest.test.mjs         # assembly: manifest ↔ patch ↔ module ag
 node test/readme.test.mjs           # README.md and README.zh.md stay structurally in step
 ```
 
-380 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
+381 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
 
 They also need no harness running, so they sidestep the one-harness-per-`$DSH_HOME` constraint entirely — `npm test` is the fast way to check the plugin without touching a live profile.
 
