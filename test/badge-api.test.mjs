@@ -61,6 +61,7 @@ function post(body) {
  * @param {(agent: object, subcommand: string) => Promise<object>} [options.runCommand] - command runner.
  * @param {string} [options.resolved] - what `resolveSessionId` returns.
  * @param {object} [options.state] - what `stateForSession` returns.
+ * @param {object} [options.usage] - what `usageView` returns.
  * @returns {{handler: Function, calls: object[]}} the handler and its call log.
  */
 function host(options = {}) {
@@ -69,6 +70,9 @@ function host(options = {}) {
     agentForSession: (sessionId) => (sessionId === 'session-live' ? (options.agent ?? { id: sessionId }) : undefined),
     resolveSessionId: () => ('resolved' in options ? options.resolved : 'session-live'),
     stateForSession: () => options.state,
+    // Wired unconditionally, exactly as the live host does it, so every case below
+    // exercises the real response shape rather than a shape only tests produce.
+    usageView: () => options.usage ?? null,
     runCommand:
       options.runCommand ??
       ((agent, subcommand) => {
@@ -208,6 +212,7 @@ await test('an accepted action runs the mapped subcommand for the named session'
     text: 'ran window',
     sessionId: 'session-live',
     state: { engaged: true, heldCount: 2 },
+    usage: null,
   });
 });
 
@@ -240,17 +245,51 @@ await test('poll answers with state and runs no command', async () => {
     text: '',
     sessionId: 'session-live',
     state: { engaged: true, heldCount: 3 },
+    usage: null,
   });
 });
 
-await test('a composition tracking no session says so instead of pretending', async () => {
-  // Nothing has been braked yet in this process, so there is no session to
-  // describe. The badge shows its idle pose and asks again on the next poll.
+await test('a poll from a composition tracking no session still answers for the info bar', async () => {
+  // This case used to 404, on the reasoning that a composition which has braked
+  // nothing has no session to describe. That reasoning holds for an action — there is
+  // nothing to act on — but not for a read: five of the info bar's six figures (model,
+  // balance, tariff tier, countdown, breakdown) belong to the account and the clock,
+  // not to a session. 404 here leaves the bar dark on a quiet off-peak day, which is
+  // exactly when an operator most wants to see that the rate is cheap.
+  const { handler, calls } = host({ resolved: undefined, usage: { model: 'deepseek-chat' } });
+  const response = await handler(post('{"action":"poll"}'));
+  assert.equal(response.status, 200);
+  assert.equal(calls.length, 0);
+  const body = await response.json();
+  assert.equal(body.sessionId, null, 'no session is claimed, so none is invented');
+  assert.equal(body.state, null);
+  assert.deepEqual(body.usage, { model: 'deepseek-chat' }, 'the account-level figures survive');
+});
+
+await test('an action from a composition tracking no session still refuses', async () => {
+  // The safety half of the case above, kept separate so relaxing the read can never
+  // silently relax the write: with no session there is nothing to release, and
+  // guessing one would release a queue the operator did not name.
   const { handler, calls } = host({ resolved: undefined });
   const response = await handler(post('{"action":"poll"}'));
-  assert.equal(response.status, 404);
-  assert.equal(calls.length, 0);
-  assert.match((await response.json()).error, /no session is currently tracked/u);
+  assert.equal(response.status, 200);
+  const action = await handler(post('{"action":"window"}'));
+  assert.equal(action.status, 404);
+  assert.equal(calls.length, 0, 'the command must not run without a session');
+  assert.match((await action.json()).error, /no session is currently tracked/u);
+});
+
+await test('the info bar rides the poll without a second request', async () => {
+  const usage = { model: 'deepseek-reasoner', tier: 'peak', sessionCost: 30.79 };
+  const { handler } = host({ state: { engaged: true }, usage });
+  const body = await (await handler(post('{"action":"poll","sessionId":"session-live"}'))).json();
+  assert.deepEqual(body.usage, usage, 'a bar that needed its own request would double the polling');
+});
+
+await test('an action answer carries the usage too, so the bar updates on a click', async () => {
+  const { handler } = host({ usage: { tier: 'off-peak' } });
+  const body = await (await handler(post('{"action":"now","sessionId":"session-live"}'))).json();
+  assert.deepEqual(body.usage, { tier: 'off-peak' });
 });
 
 await test('a session with no published state still answers, with a null state', async () => {

@@ -23,6 +23,7 @@ import {
   dispatchVerdict,
   explainHold,
   isPeakAt,
+  nextTierBoundaryAfter,
   nextTransitionAfter,
   phaseAt,
 } from '../lib/time-window.js';
@@ -466,6 +467,34 @@ test('describeInstant renders the same instant in UTC and the local offset', () 
 
 test('describeInstant renders non-finite edges as never', () => {
   assert.deepEqual(describeInstant(Number.POSITIVE_INFINITY), { utc: 'never', local: 'never' });
+});
+
+test('nextTierBoundaryAfter finds the price edge even when it is days away', () => {
+  // The brace-aware `nextTransitionAfter` only walks a window's neighbourhood, which is
+  // all the brake needs. The info bar asks a different question — "when does the price
+  // change?" — and from a weekend the honest answer is Monday. Reusing the bounded helper
+  // for it made the countdown read "—" on exactly the days the operator most wants to
+  // know how long the cheap rate lasts.
+  assert.equal(nextTierBoundaryAfter(at('2026-09-16T00:30:00Z')), at('2026-09-16T01:00:00Z'), 'off-peak to peak');
+  assert.equal(nextTierBoundaryAfter(at('2026-09-16T02:00:00Z')), at('2026-09-16T04:00:00Z'), 'peak window closes');
+  assert.equal(nextTierBoundaryAfter(at('2026-09-16T05:00:00Z')), at('2026-09-16T06:00:00Z'), 'across the midday gap');
+  assert.equal(nextTierBoundaryAfter(at('2026-09-18T11:00:00Z')), at('2026-09-21T01:00:00Z'), 'Friday evening to Monday');
+  assert.equal(nextTierBoundaryAfter(at('2026-09-19T02:00:00Z')), at('2026-09-21T01:00:00Z'), 'Saturday to Monday');
+  assert.equal(nextTierBoundaryAfter(at('2026-09-20T23:00:00Z')), at('2026-09-21T01:00:00Z'), 'Sunday night to Monday');
+});
+
+test('nextTierBoundaryAfter agrees with isPeakAt at every edge it reports', () => {
+  // The label and the countdown must never disagree: whatever instant this returns must
+  // be a real tier change, and the instant a millisecond before it must not be.
+  for (const iso of ['2026-09-16T00:30:00Z', '2026-09-16T02:00:00Z', '2026-09-18T11:00:00Z', '2026-09-19T02:00:00Z']) {
+    const edge = nextTierBoundaryAfter(at(iso));
+    assert.notEqual(isPeakAt(edge), isPeakAt(at(iso)), `no tier change at ${new Date(edge).toISOString()}`);
+    assert.equal(isPeakAt(edge - 1), isPeakAt(at(iso)), 'the edge must be the first instant of the new tier');
+  }
+});
+
+test('nextTierBoundaryAfter reports no edge for an empty table', () => {
+  assert.equal(nextTierBoundaryAfter(at('2026-09-16T02:00:00Z'), []), Number.POSITIVE_INFINITY);
 });
 
 process.stdout.write(`\n${results.passed} passed, ${results.failed} failed\n`);
