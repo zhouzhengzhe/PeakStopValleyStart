@@ -57,10 +57,29 @@ if (decision.kind === "reject") return decision;               // ……并且�
 需要 Node.js ≥ 20，以及一个 `dsh plugin` 命令可用的 DeepSeek Harness 构建。
 
 ```sh
-dsh plugin --profile web add link:D:\SoftDocument\DSHProject\PeakStopValleyStart
+dsh plugin --profile web add github:zhouzhengzhe/PeakStopValleyStart
 ```
 
 之后重启 harness，让 profile 的层栈重新装配。
+
+也可以钉住某个提交——一旦你真的依赖它，这值得做，因为 `main` 会动：
+
+```sh
+dsh plugin --profile web add github:zhouzhengzhe/PeakStopValleyStart#<commit-sha>
+```
+
+本包只从 git 安装，不走 registry：`private` 已置位且 `prepublishOnly` 会拒绝发布，所以不存在一个会与这份代码脱节的已发布副本。`lib/client.bundle.js` 是提交进仓库的，因此安装不需要构建步骤、也不需要开发依赖。
+
+### 改这个插件本身
+
+克隆下来，把克隆目录作为链接安装，改动在下次重载时生效：
+
+```sh
+git clone https://github.com/zhouzhengzhe/PeakStopValleyStart
+dsh plugin --profile web add link:/absolute/path/to/your/clone
+```
+
+`web` 是开发时使用的 profile，换成你在跑的那个即可。
 
 卸载：
 
@@ -374,7 +393,7 @@ node test/manifest.test.mjs         # 装配：清单 ↔ 补丁 ↔ 模块三�
 node test/readme.test.mjs           # README.md 与 README.zh.md 保持结构同步
 ```
 
-381 条断言，无测试框架、无依赖。这些套件是确定性的：时段测试对显式 UTC 时刻断言，集成测试注入固定时钟**和**固定语言，漂移测试在系统临时目录里构建真实仓库并使用显式的提交者身份。
+382 条断言，无测试框架、无依赖。这些套件是确定性的：时段测试对显式 UTC 时刻断言，集成测试注入固定时钟**和**固定语言，漂移测试在系统临时目录里构建真实仓库并使用显式的提交者身份。
 
 它们也不需要 harness 在运行，因此完全绕开了"同一 `$DSH_HOME` 只能跑一个 harness"这条约束——`npm test` 是不碰活动 profile 就能检查本插件的最快方式。
 

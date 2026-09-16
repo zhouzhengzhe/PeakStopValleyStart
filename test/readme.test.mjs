@@ -156,5 +156,27 @@ await test('the config table documents the same keys in both languages', () => {
   assert.deepEqual(keys(zh), keys(en), 'a configuration key is documented in one language only');
 });
 
+await test('the install instructions work for someone who is not the author', () => {
+  // Reported: the install section read `add link:D:\SoftDocument\DSHProject\...` — the
+  // author's own working copy. Nobody else has that path, and an install section is read
+  // almost exclusively by people who are not the author. A repository can be published
+  // and still be uninstallable, and nothing else here would have noticed.
+  for (const [name, markdown] of [['README.md', en], ['README.zh.md', zh]]) {
+    // A drive letter at the start of a path: `C:\...`, `D:/...`. The lookbehind keeps
+    // `https://` out of it, where the colon is preceded by a letter.
+    const absolute = /(?<![A-Za-z0-9])[A-Za-z]:[\\/]/u.exec(markdown);
+    assert.equal(absolute, null, `${name} names an absolute local path (${absolute?.[0]}), which only works on the author's machine`);
+    assert.match(
+      markdown,
+      /dsh plugin --profile \w+ add github:[\w.-]+\/[\w.-]+/u,
+      `${name} must install from the repository, not from a directory`,
+    );
+    assert.ok(
+      markdown.indexOf('github:zhouzhengzhe/PeakStopValleyStart') >= 0,
+      `${name} must name the repository it is the README of`,
+    );
+  }
+});
+
 process.stdout.write(`\n${results.passed} passed, ${results.failed} failed\n`);
 if (results.failed > 0) process.exitCode = 1;

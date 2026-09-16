@@ -57,10 +57,29 @@ A rejected step closes its turn with `reason: { kind: 'blocked' }`, which that p
 Requires Node.js ≥ 20 and a DeepSeek Harness build whose `dsh plugin` command is available.
 
 ```sh
-dsh plugin --profile web add link:D:\SoftDocument\DSHProject\PeakStopValleyStart
+dsh plugin --profile web add github:zhouzhengzhe/PeakStopValleyStart
 ```
 
 Restart the harness afterwards so the profile layer stack is rebuilt.
+
+To pin a revision, which is worth doing once you depend on it — `main` moves:
+
+```sh
+dsh plugin --profile web add github:zhouzhengzhe/PeakStopValleyStart#<commit-sha>
+```
+
+The package is installed from git and never from the registry: `private` is set and `prepublishOnly` refuses, so there is no published copy to get out of step with this one. `lib/client.bundle.js` is committed, so an install needs no build step and no dev dependencies.
+
+### Working on the plugin itself
+
+Clone it and install the clone as a link, so an edit takes effect on the next reload:
+
+```sh
+git clone https://github.com/zhouzhengzhe/PeakStopValleyStart
+dsh plugin --profile web add link:/absolute/path/to/your/clone
+```
+
+`web` is the profile this was developed against; substitute whichever profile you run.
 
 Uninstall:
 
@@ -375,7 +394,7 @@ node test/manifest.test.mjs         # assembly: manifest ↔ patch ↔ module ag
 node test/readme.test.mjs           # README.md and README.zh.md stay structurally in step
 ```
 
-381 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
+382 assertions, no test framework and no dependencies. The suites are deterministic: the schedule tests assert against explicit UTC instants, the integration tests inject a fixed clock *and* a fixed language, and the drift tests build real repositories in the OS temp directory with an explicit committer identity.
 
 They also need no harness running, so they sidestep the one-harness-per-`$DSH_HOME` constraint entirely — `npm test` is the fast way to check the plugin without touching a live profile.
 
